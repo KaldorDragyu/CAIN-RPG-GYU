@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
+import { supabase, isSupabaseConfigured } from './lib/supabaseClient'
 import {
   agendas, adminPrinciples, binderThemes, blasphemies, categoryRows, conflictRules,
   creationSteps, exorcistRules, huntFlow, investigationSteps, kitCatalog, kitRules,
@@ -18,40 +19,363 @@ function Card({ title, ref, children, className = '' }) { return <article classN
 function List({ items }) { return <ul className="clean-list">{items.map((item, i) => <li key={i}>{item}</li>)}</ul> }
 function SectionTitle({ eyebrow, title, children }) { return <div className="section-title"><p className="eyebrow">{eyebrow}</p><h2>{title}</h2>{children && <p>{children}</p>}</div> }
 
+
+const ROLE_NAV = {
+  guest: ['home', 'rules', 'creation', 'agendas', 'blasphemies', 'kit', 'login'],
+  player: ['home', 'rules', 'creation', 'agendas', 'blasphemies', 'kit', 'hunt', 'tools', 'sheet'],
+  master: ['home', 'rules', 'creation', 'agendas', 'blasphemies', 'kit', 'hunt', 'admin', 'sins', 'opponents', 'tools', 'sheet']
+}
+const extraNav = [{ id: 'login', label: 'Login' }]
+const getNavForRole = role => {
+  const ids = ROLE_NAV[role || 'guest'] || ROLE_NAV.guest
+  const all = [...navItems, ...extraNav]
+  return ids.map(id => all.find(item => item.id === id)).filter(Boolean)
+}
+const roleName = role => role === 'master' ? 'Mestre' : role === 'player' ? 'Player' : 'Guest'
+
+function useAuth() {
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cain-auth-session')) || { role: 'guest', mode: 'guest' } }
+    catch { return { role: 'guest', mode: 'guest' } }
+  })
+  const [loading, setLoading] = useState(Boolean(isSupabaseConfigured))
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    async function bootSupabase() {
+      if (!isSupabaseConfigured || !supabase) { setLoading(false); return }
+      const { data } = await supabase.auth.getSession()
+      if (!alive) return
+      if (data?.session?.user) await hydrateSupabaseUser(data.session.user)
+      else { setUser({ role: 'guest', mode: 'guest' }); localStorage.removeItem('cain-auth-session') }
+      setLoading(false)
+    }
+    bootSupabase()
+    if (!isSupabaseConfigured || !supabase) return () => { alive = false }
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) hydrateSupabaseUser(session.user)
+      else { setUser({ role: 'guest', mode: 'guest' }); localStorage.removeItem('cain-auth-session') }
+    })
+    return () => { alive = false; sub?.subscription?.unsubscribe?.() }
+  }, [])
+
+  async function hydrateSupabaseUser(rawUser) {
+    if (!supabase) return
+    let profile = null
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', rawUser.id).maybeSingle()
+    if (!error && data) profile = data
+    if (!profile) {
+      const fallbackRole = import.meta.env.VITE_MASTER_EMAIL && rawUser.email?.toLowerCase() === import.meta.env.VITE_MASTER_EMAIL.toLowerCase() ? 'master' : 'player'
+      const { data: created } = await supabase.from('profiles').upsert({
+        id: rawUser.id,
+        email: rawUser.email,
+        display_name: rawUser.user_metadata?.display_name || rawUser.email?.split('@')[0] || 'Exorcista',
+        role: fallbackRole
+      }).select('*').maybeSingle()
+      profile = created
+    }
+    const next = {
+      id: rawUser.id,
+      email: rawUser.email,
+      name: profile?.display_name || rawUser.user_metadata?.display_name || rawUser.email,
+      role: profile?.role || 'player',
+      mode: 'supabase'
+    }
+    setUser(next)
+    localStorage.setItem('cain-auth-session', JSON.stringify(next))
+  }
+
+  function localUsers() { try { return JSON.parse(localStorage.getItem('cain-local-users')) || {} } catch { return {} } }
+  function saveLocalUsers(users) { localStorage.setItem('cain-local-users', JSON.stringify(users)) }
+
+  async function login(email, password) {
+    setMessage('')
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) { setMessage(error.message); return false }
+      return true
+    }
+    const users = localUsers()
+    const found = users[email.toLowerCase()]
+    if (!found || found.password !== password) { setMessage('Login local inválido. Crie uma conta local ou confira email/senha.'); return false }
+    const next = { email: found.email, name: found.name, role: found.role, mode: 'local' }
+    setUser(next); localStorage.setItem('cain-auth-session', JSON.stringify(next)); return true
+  }
+
+  async function register({ email, password, name, role = 'player' }) {
+    setMessage('')
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { display_name: name || email.split('@')[0] } } })
+      if (error) { setMessage(error.message); return false }
+      if (data?.user) {
+        await supabase.from('profiles').upsert({ id: data.user.id, email, display_name: name || email.split('@')[0], role: 'player' })
+        setMessage('Conta criada. Se o Supabase pedir confirmação por email, confirme antes de entrar.')
+      }
+      return true
+    }
+    const users = localUsers()
+    const key = email.toLowerCase()
+    users[key] = { email, password, name: name || email.split('@')[0], role }
+    saveLocalUsers(users)
+    setMessage(`Conta local criada: ${email} (${roleName(role)}).`)
+    return true
+  }
+
+  function seedLocalUsers() {
+    const users = localUsers()
+    const seed = {
+      'mestre@cain.com': { email: 'mestre@cain.com', password: 'mestre123', name: 'Administrador CAIN', role: 'master' },
+      'vergil@cain.com': { email: 'vergil@cain.com', password: 'player123', name: 'Vergil', role: 'player' },
+      'dante@cain.com': { email: 'dante@cain.com', password: 'player123', name: 'Dante', role: 'player' }
+    }
+    saveLocalUsers({ ...users, ...seed })
+    setMessage('Contas locais de teste criadas: mestre@cain.com / mestre123; vergil@cain.com / player123; dante@cain.com / player123.')
+  }
+
+  async function logout() {
+    if (isSupabaseConfigured && supabase) await supabase.auth.signOut()
+    localStorage.removeItem('cain-auth-session')
+    setUser({ role: 'guest', mode: 'guest' })
+  }
+
+  function continueAsGuest() { setUser({ role: 'guest', mode: 'guest' }); localStorage.removeItem('cain-auth-session') }
+  return { user, role: user?.role || 'guest', loading, message, setMessage, login, register, seedLocalUsers, logout, continueAsGuest, supabaseReady: isSupabaseConfigured }
+}
+
 function App() {
-  const [active, setActive] = useState('home')
+  const auth = useAuth()
+  const [active, setActive] = useState(() => auth.role === 'guest' ? 'login' : 'home')
   const [query, setQuery] = useState('')
-  const activeLabel = navItems.find(i => i.id === active)?.label ?? 'CAIN'
+  const allowedNav = getNavForRole(auth.role)
+  const allowedIds = allowedNav.map(i => i.id)
+
+  useEffect(() => {
+    if (!allowedIds.includes(active)) setActive(auth.role === 'guest' ? 'login' : 'home')
+  }, [auth.role, active])
+
+  const activeLabel = [...navItems, ...extraNav].find(i => i.id === active)?.label ?? 'CAIN'
   const page = useMemo(() => ({
-    home: <Home setActive={setActive} />,
+    home: <Home setActive={setActive} auth={auth} />,
     rules: <RulesPage />,
     creation: <CreationPage />,
     agendas: <AgendasPage query={query} />,
     blasphemies: <BlasphemiesPage query={query} />,
     kit: <KitPage />,
-    hunt: <HuntPage />,
-    admin: <AdminPage />,
-    sins: <SinsPage query={query} />,
-    opponents: <OpponentsPage />,
-    tools: <ToolsPage />,
-    sheet: <CharacterSheet />
-  }[active] || <Home setActive={setActive} />), [active, query])
+    hunt: <LiveHuntPage auth={auth} />,
+    admin: auth.role === 'master' ? <AdminPage /> : <Restricted auth={auth} setActive={setActive} />,
+    sins: auth.role === 'master' ? <SinsPage query={query} /> : <Restricted auth={auth} setActive={setActive} />,
+    opponents: auth.role === 'master' ? <OpponentsPage /> : <Restricted auth={auth} setActive={setActive} />,
+    tools: auth.role === 'guest' ? <Restricted auth={auth} setActive={setActive} /> : <ToolsPage />,
+    sheet: auth.role === 'guest' ? <Restricted auth={auth} setActive={setActive} /> : <CharacterSheet />,
+    login: <AuthPage auth={auth} setActive={setActive} />
+  }[active] || <Home setActive={setActive} auth={auth} />), [active, query, auth.role, auth.user?.email, auth.message])
 
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand-block"><div className="triangle-mark">▽</div><p className="eyebrow">Wipe out the stain</p><h1>CAIN 1.3</h1><p>Referência PT-BR de mesa</p></div>
-      <nav>{navItems.map(item => <button key={item.id} className={active === item.id ? 'active' : ''} onClick={() => setActive(item.id)}>{item.label}</button>)}</nav>
+      <nav>{allowedNav.map(item => <button key={item.id} className={active === item.id ? 'active' : ''} onClick={() => setActive(item.id)}>{item.label}</button>)}</nav>
       <div className="sidebar-note"><strong>Busca rápida</strong><input value={query} onChange={e => setQuery(e.target.value)} placeholder="agenda, poder, sin..." /></div>
+      <div className="sidebar-note session-note"><strong>{roleName(auth.role)}</strong><span>{auth.user?.email || 'Acesso sem login'}</span>{auth.role !== 'guest' ? <button className="ghost" onClick={auth.logout}>Sair</button> : <button className="ghost" onClick={() => setActive('login')}>Entrar</button>}</div>
     </aside>
     <main>
-      <header className="topbar"><div><p className="eyebrow">Aba atual</p><h2>{activeLabel}</h2></div><button className="ghost" onClick={() => setActive('sheet')}>Abrir ficha</button></header>
-      {page}
+      <header className="topbar"><div><p className="eyebrow">Aba atual</p><h2>{activeLabel}</h2></div><div className="top-actions"><span className="pill">{roleName(auth.role)}</span>{auth.role !== 'guest' && <button className="ghost" onClick={() => setActive('sheet')}>Abrir ficha</button>}</div></header>
+      {auth.loading ? <section className="stack gap-lg"><Card title="Carregando autenticação"><p>Conectando...</p></Card></section> : page}
       <footer><p>{legalNotice}</p></footer>
     </main>
   </div>
 }
 
-function Home({ setActive }) {
+function Restricted({ auth, setActive }) {
+  return <section className="stack gap-lg"><SectionTitle eyebrow="Acesso restrito" title="Faça login para usar esta área" >Guests podem consultar as regras abertas. A ficha e a caçada ao vivo ficam para players e mestre.</SectionTitle><Card title="Entrar na operação"><p>Use login de Player para criar ficha e acompanhar a missão, ou login de Mestre para controlar NPCs, inimigos, aliados, tensão e pressão.</p><button className="primary" onClick={() => setActive('login')}>Ir para Login</button>{auth.role !== 'guest' && <p className="muted">Seu perfil atual não tem permissão para essa aba.</p>}</Card></section>
+}
+
+
+function AuthPage({ auth, setActive }) {
+  const [mode, setMode] = useState('login')
+  const [email, setEmail] = useState('mestre@cain.com')
+  const [password, setPassword] = useState('mestre123')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('player')
+  async function submit(e) {
+    e.preventDefault()
+    const ok = mode === 'login'
+      ? await auth.login(email, password)
+      : await auth.register({ email, password, name, role: auth.supabaseReady ? 'player' : role })
+    if (ok && mode === 'login') setActive('home')
+  }
+  return <section className="stack gap-lg">
+    <SectionTitle eyebrow="Acesso à operação" title="Login de Mestre, Player ou Guest">Guest vê só as regras abertas. Player cria ficha e acompanha a missão. Mestre controla caçada, NPCs, aliados e inimigos.</SectionTitle>
+    <div className="grid two">
+      <Card title={mode === 'login' ? 'Entrar' : 'Criar conta'}>
+        <form className="form-grid single" onSubmit={submit}>
+          {mode === 'register' && <label>Nome / codinome<input value={name} onChange={e => setName(e.target.value)} placeholder="Vergil, Nero, etc." /></label>}
+          <label>Email do exorcista<input value={email} onChange={e => setEmail(e.target.value)} placeholder="vergil@cain.com" /></label>
+          <label>Senha<input type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+          {mode === 'register' && !auth.supabaseReady && <label>Tipo de conta<select value={role} onChange={e => setRole(e.target.value)}><option value="player">Player</option><option value="master">Mestre</option></select></label>}
+          <div className="sheet-actions"><button className="primary" type="submit">{mode === 'login' ? 'Entrar' : 'Criar conta'}</button><button className="ghost" type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Criar conta de player' : 'Voltar ao login'}</button><button className="ghost" type="button" onClick={() => { auth.continueAsGuest(); setActive('rules') }}>Acessar como Guest</button></div>
+        </form>
+        {auth.message && <p className="warning">{auth.message}</p>}
+      </Card>
+      <Card title="Status do sistema">
+        <div className="stat-grid"><div><span>Backend</span><strong>{auth.supabaseReady ? 'Supabase' : 'Local'}</strong></div><div><span>Perfil atual</span><strong>{roleName(auth.role)}</strong></div></div>
+        {auth.supabaseReady ? <p>Supabase está configurado. Players podem criar conta, mas o cargo de Mestre deve ser definido no banco, conforme o arquivo <code>SUPABASE_SETUP.md</code>.</p> : <p>Sem Supabase configurado, o site usa login local de teste no navegador. Isso serve para desenvolver e testar, mas não sincroniza entre computadores.</p>}
+        {!auth.supabaseReady && <button className="ghost" onClick={auth.seedLocalUsers}>Criar contas locais de teste</button>}
+        <div className="result-box"><strong>Contas locais de teste</strong><p>Mestre: <code>mestre@cain.com</code> / <code>mestre123</code></p><p>Player: <code>vergil@cain.com</code> / <code>player123</code></p></div>
+      </Card>
+    </div>
+  </section>
+}
+
+const CAMPAIGN_KEY = 'cain-live-campaign-state-v2'
+const newActor = (type = 'npc') => ({ id: crypto.randomUUID(), type, name: type === 'enemy' ? 'Pecado sem nome' : 'NPC sem nome', subtitle: '', image: '', visible: type !== 'enemy', status: 'Ativo', publicInfo: '', privateInfo: '', category: type === 'enemy' ? 2 : 0, stress: 0, maxStress: 6, injuries: 0, execution: 0, executionMax: type === 'enemy' ? 10 : 0, dead: false })
+const defaultCampaign = () => ({
+  id: 'main',
+  version: 2,
+  orgName: 'CAIN // Célula GYU',
+  logo: '',
+  missionTitle: 'Operação Teste',
+  missionCode: 'DOCREF GYU-0001',
+  status: 'Briefing',
+  introPublic: 'Vocês foram convocados por CAIN. O alvo é um Pecado emergente. A área está instável. Eliminem a ameaça antes que a Mancha se espalhe.',
+  briefingPublic: 'Informações iniciais: tipo do Pecado, incidente que chamou atenção de CAIN e 2–3 pontos de interesse para investigar.',
+  briefingPrivate: 'Notas secretas do Mestre: traumas verdadeiros, poderes do Pecado, pistas falsas, destino dos NPCs e gatilhos de tensão.',
+  showTrackers: true,
+  tension: { name: 'Tensão', value: 0, max: 3 },
+  pressure: { name: 'Pressão', value: 0, max: 6 },
+  actors: [newActor('enemy')],
+  logs: []
+})
+
+function useCampaign(auth) {
+  const [campaign, setCampaign] = useState(() => { try { return { ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) } } catch { return defaultCampaign() } })
+  const [status, setStatus] = useState('')
+  const canWrite = auth.role === 'master'
+
+  useEffect(() => { refresh() }, [auth.role, auth.user?.id])
+  useEffect(() => {
+    if (!auth.supabaseReady || !supabase || auth.role === 'guest') return
+    const channel = supabase.channel('cain-campaign-state')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_state', filter: 'id=eq.main' }, payload => {
+        if (payload?.new?.data) { setCampaign({ ...defaultCampaign(), ...payload.new.data }); localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(payload.new.data)) }
+      }).subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [auth.supabaseReady, auth.role])
+
+  async function refresh() {
+    if (auth.supabaseReady && supabase && auth.role !== 'guest') {
+      const { data, error } = await supabase.from('campaign_state').select('data').eq('id', 'main').maybeSingle()
+      if (!error && data?.data) { setCampaign({ ...defaultCampaign(), ...data.data }); localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(data.data)); return }
+      if (canWrite) await save(defaultCampaign(), 'Estado inicial criado.')
+    } else {
+      try { setCampaign({ ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) }) } catch { setCampaign(defaultCampaign()) }
+    }
+  }
+
+  async function save(next, okMessage = 'Salvo.') {
+    setCampaign(next)
+    localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(next))
+    if (auth.supabaseReady && supabase && canWrite) {
+      const { error } = await supabase.from('campaign_state').upsert({ id: 'main', data: next, updated_at: new Date().toISOString() })
+      setStatus(error ? `Erro ao salvar no Supabase: ${error.message}` : okMessage)
+    } else setStatus(okMessage)
+  }
+  function update(updater, okMessage) {
+    if (!canWrite) return setStatus('Apenas o Mestre pode alterar a caçada.')
+    const next = typeof updater === 'function' ? updater(campaign) : { ...campaign, ...updater }
+    save({ ...next, version: 2 }, okMessage)
+  }
+  return { campaign, update, refresh, status, canWrite }
+}
+
+function readImageFile(file, cb) {
+  if (!file) return
+  if (file.size > 900000) { alert('Imagem muito grande. Use uma imagem menor que 900 KB ou cole uma URL.'); return }
+  const reader = new FileReader()
+  reader.onload = () => cb(reader.result)
+  reader.readAsDataURL(file)
+}
+
+function LiveHuntPage({ auth }) {
+  const store = useCampaign(auth)
+  if (auth.role === 'guest') return <section className="stack gap-lg"><SectionTitle eyebrow="Caçada" title="Acesso de missão bloqueado">Entre como Player ou Mestre para ver o início da missão, NPCs revelados e painel de sessão.</SectionTitle><HuntRulesReference /></section>
+  return <section className="stack gap-lg">
+    <SectionTitle eyebrow="Caçada ao vivo" title={auth.role === 'master' ? 'Painel do Mestre' : 'Dossiê do Player'}>{auth.role === 'master' ? 'Controle briefing, NPCs, aliados, inimigos, tensão, pressão e registros públicos.' : 'Veja o briefing liberado, NPCs revelados e andamento da missão.'}</SectionTitle>
+    {store.status && <div className="result-box"><strong>Status:</strong> {store.status}</div>}
+    {auth.role === 'master' ? <MasterHuntPanel store={store} /> : <PlayerHuntPanel store={store} />}
+    <HuntRulesReference />
+  </section>
+}
+
+function HuntHeader({ campaign }) {
+  return <div className="mission-header">{campaign.logo ? <img src={campaign.logo} alt="Logo da organização" /> : <div className="mission-logo">▽</div>}<div><p className="eyebrow">{campaign.missionCode}</p><h2>{campaign.missionTitle}</h2><p><strong>{campaign.orgName}</strong> — {campaign.status}</p><p>{campaign.introPublic}</p></div></div>
+}
+
+function MasterHuntPanel({ store }) {
+  const { campaign, update, refresh } = store
+  const [actorType, setActorType] = useState('npc')
+  const [logText, setLogText] = useState('')
+  const actorUpdate = (id, patch) => update(c => ({ ...c, actors: c.actors.map(a => a.id === id ? { ...a, ...patch } : a) }), 'Ator atualizado.')
+  const addActor = () => update(c => ({ ...c, actors: [...c.actors, newActor(actorType)] }), 'Ator adicionado.')
+  const deleteActor = id => update(c => ({ ...c, actors: c.actors.filter(a => a.id !== id) }), 'Ator removido.')
+  const addLog = (publicLog = true) => { if (!logText.trim()) return; update(c => ({ ...c, logs: [{ id: crypto.randomUUID(), text: logText.trim(), public: publicLog, at: new Date().toLocaleString() }, ...(c.logs || [])].slice(0, 60) }), 'Registro adicionado.'); setLogText('') }
+  const tickTension = () => update(c => { let tension = { ...c.tension, value: Number(c.tension.value || 0) + 1 }, pressure = { ...c.pressure }; let logs = [...(c.logs || [])]; if (tension.value >= Number(tension.max || 3)) { tension.value = 0; pressure.value = Math.min(Number(pressure.max || 6), Number(pressure.value || 0) + 1); logs.unshift({ id: crypto.randomUUID(), text: 'A Tensão encheu: a Pressão aumentou em +1.', public: true, at: new Date().toLocaleString() }) } return { ...c, tension, pressure, logs } }, 'Tensão atualizada.')
+  const setTracker = (which, patch) => update(c => ({ ...c, [which]: { ...c[which], ...patch } }), 'Talismã atualizado.')
+  return <div className="stack gap-lg">
+    <HuntHeader campaign={campaign} />
+    <div className="grid two"><Card title="Configuração da missão"><div className="form-grid"><label>Organização<input value={campaign.orgName} onChange={e => update({ orgName: e.target.value })} /></label><label>Código<input value={campaign.missionCode} onChange={e => update({ missionCode: e.target.value })} /></label><label>Título da missão<input value={campaign.missionTitle} onChange={e => update({ missionTitle: e.target.value })} /></label><label>Status<select value={campaign.status} onChange={e => update({ status: e.target.value })}><option>Briefing</option><option>Investigação</option><option>Preparação</option><option>Conflito</option><option>Execução</option><option>Exfiltração</option><option>Encerrada</option></select></label><label>Logo por URL<input value={campaign.logo || ''} onChange={e => update({ logo: e.target.value })} placeholder="https://..." /></label><label>Upload de logo<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => update({ logo: data }, 'Logo atualizada.'))} /></label><label className="check"><input type="checkbox" checked={!!campaign.showTrackers} onChange={e => update({ showTrackers: e.target.checked })} /> Mostrar Tensão/Pressão aos players</label></div><label>Texto de abertura para players<textarea value={campaign.introPublic} onChange={e => update({ introPublic: e.target.value })} /></label><label>Briefing público<textarea value={campaign.briefingPublic} onChange={e => update({ briefingPublic: e.target.value })} /></label><label>Notas secretas do Mestre<textarea value={campaign.briefingPrivate} onChange={e => update({ briefingPrivate: e.target.value })} /></label><button className="ghost" onClick={refresh}>Atualizar do banco</button></Card>
+    <Card title="Tensão e Pressão"><TrackerControl title="Tensão" tracker={campaign.tension} onChange={patch => setTracker('tension', patch)} /><TrackerControl title="Pressão" tracker={campaign.pressure} onChange={patch => setTracker('pressure', patch)} /><div className="sheet-actions"><button className="primary" onClick={tickTension}>Marcar +1 Tensão</button><button className="ghost" onClick={() => setTracker('tension', { value: 0 })}>Zerar Tensão</button><button className="ghost" onClick={() => setTracker('pressure', { value: 0 })}>Zerar Pressão</button></div><p className="muted">Quando Tensão enche, ela zera e aumenta Pressão. Quando Pressão enche, a situação sai do controle.</p></Card></div>
+    <Card title="Elenco da caçada"><div className="sheet-actions"><select value={actorType} onChange={e => setActorType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="enemy">Inimigo / Pecado</option><option value="player">Exorcista</option></select><button className="primary" onClick={addActor}>Adicionar</button></div><div className="grid two">{campaign.actors.map(a => <ActorEditor key={a.id} actor={a} update={actorUpdate} remove={deleteActor} />)}</div></Card>
+    <div className="grid two"><Card title="Registro da missão"><textarea value={logText} onChange={e => setLogText(e.target.value)} placeholder="Ex.: A equipe encontrou a testemunha no hospital..." /><div className="sheet-actions"><button className="primary" onClick={() => addLog(true)}>Adicionar público</button><button className="ghost" onClick={() => addLog(false)}>Adicionar secreto</button><button className="danger" onClick={() => update({ logs: [] }, 'Registros apagados.')}>Limpar</button></div><div className="log-list">{(campaign.logs || []).map(l => <div key={l.id} className={l.public ? 'log public' : 'log private'}><small>{l.at} — {l.public ? 'Público' : 'Secreto'}</small><p>{l.text}</p></div>)}</div></Card><Card title="Como usar na mesa"><ol className="steps"><li>Revele apenas NPCs e informações marcadas como públicas.</li><li>Use +Tensão quando a mesa gastar tempo, falhar com consequência ou gerar complicações.</li><li>Em conflito, aplique estresse em aliados/exorcistas; no terceiro ferimento, qualquer novo estresse mata.</li><li>Para Pecado/inimigo, marque cortes no Talismã de Execução; ao encher, ele cai, é executado ou muda de fase conforme sua preparação.</li></ol></Card></div>
+  </div>
+}
+
+function PlayerHuntPanel({ store }) {
+  const { campaign, refresh } = store
+  const visibleActors = (campaign.actors || []).filter(a => a.visible)
+  const visibleLogs = (campaign.logs || []).filter(l => l.public)
+  return <div className="stack gap-lg"><HuntHeader campaign={campaign} /><div className="grid two"><Card title="Briefing público"><p>{campaign.briefingPublic}</p><button className="ghost" onClick={refresh}>Atualizar missão</button></Card>{campaign.showTrackers && <Card title="Estado da área"><TrackerView title="Tensão" tracker={campaign.tension} /><TrackerView title="Pressão" tracker={campaign.pressure} /></Card>}</div><Card title="NPCs e alvos revelados"><div className="grid three">{visibleActors.length ? visibleActors.map(a => <ActorPublicCard key={a.id} actor={a} />) : <p className="muted">Nenhum NPC revelado ainda.</p>}</div></Card><Card title="Registro público"><div className="log-list">{visibleLogs.length ? visibleLogs.map(l => <div key={l.id} className="log public"><small>{l.at}</small><p>{l.text}</p></div>) : <p className="muted">Nenhum registro público ainda.</p>}</div></Card></div>
+}
+
+function TrackerControl({ title, tracker, onChange }) {
+  return <div className="tracker-control"><div className="talisman-head"><strong>{title}</strong><label>Max<input type="number" min="1" max="12" value={tracker.max} onChange={e => onChange({ max: clamp(e.target.value, 1, 12), value: Math.min(tracker.value, clamp(e.target.value, 1, 12)) })} /></label></div><div className="slashes">{Array.from({ length: Number(tracker.max) || 1 }).map((_, i) => <button key={i} className={i < tracker.value ? 'marked' : ''} onClick={() => onChange({ value: i + 1 === tracker.value ? i : i + 1 })}>╱</button>)}</div></div>
+}
+function TrackerView({ title, tracker }) { return <div className="tracker-control"><strong>{title}: {tracker.value}/{tracker.max}</strong><div className="slashes read-only">{Array.from({ length: Number(tracker.max) || 1 }).map((_, i) => <span key={i} className={i < tracker.value ? 'marked' : ''}>╱</span>)}</div></div> }
+
+function applyActorStress(actor, amount, nonlethal = false) {
+  if (actor.dead) return actor
+  let stress = Number(actor.stress || 0), injuries = Number(actor.injuries || 0), dead = false, status = actor.status || 'Ativo'
+  const maxStress = Math.max(1, Number(actor.maxStress || 6) - injuries)
+  if (nonlethal) return { ...actor, stress: Math.min(maxStress - 1, stress + amount) }
+  for (let i = 0; i < amount; i++) {
+    if (injuries >= 3) { dead = true; status = 'Morto'; break }
+    const cap = Math.max(1, Number(actor.maxStress || 6) - injuries)
+    stress += 1
+    if (stress >= cap) { injuries += 1; stress = 0; if (injuries >= 3) status = 'À beira da morte' }
+  }
+  return { ...actor, stress, injuries, dead, status }
+}
+function applyExecution(actor, amount) {
+  const execution = Math.min(Number(actor.executionMax || 1), Number(actor.execution || 0) + amount)
+  return { ...actor, execution, dead: execution >= Number(actor.executionMax || 1), status: execution >= Number(actor.executionMax || 1) ? 'Executado / derrotado' : actor.status }
+}
+
+function ActorEditor({ actor, update, remove }) {
+  const isEnemy = actor.type === 'enemy'
+  const patch = p => update(actor.id, p)
+  const stressAction = (amount, nonlethal = false) => patch(isEnemy ? applyExecution(actor, amount) : applyActorStress(actor, amount, nonlethal))
+  return <div className={`actor-editor ${actor.dead ? 'dead' : ''}`}><div className="actor-image">{actor.image ? <img src={actor.image} alt={actor.name} /> : <span>{isEnemy ? '☠' : '◇'}</span>}</div><div className="form-grid"><label>Nome<input value={actor.name} onChange={e => patch({ name: e.target.value })} /></label><label>Tipo<select value={actor.type} onChange={e => patch({ type: e.target.value })}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="enemy">Inimigo / Pecado</option><option value="player">Exorcista</option></select></label><label>Função / legenda<input value={actor.subtitle} onChange={e => patch({ subtitle: e.target.value })} /></label><label>Status<input value={actor.status} onChange={e => patch({ status: e.target.value })} /></label><label className="check"><input type="checkbox" checked={!!actor.visible} onChange={e => patch({ visible: e.target.checked })} /> Visível para players</label><label>Imagem URL<input value={actor.image || ''} onChange={e => patch({ image: e.target.value })} /></label><label>Upload de imagem<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => patch({ image: data }))} /></label></div><label>Info pública<textarea value={actor.publicInfo} onChange={e => patch({ publicInfo: e.target.value })} /></label><label>Notas secretas<textarea value={actor.privateInfo} onChange={e => patch({ privateInfo: e.target.value })} /></label>{isEnemy ? <div className="tracker-control"><label>Talismã de Execução máximo<input type="number" min="1" max="40" value={actor.executionMax} onChange={e => patch({ executionMax: clamp(e.target.value, 1, 40), execution: Math.min(actor.execution, clamp(e.target.value, 1, 40)) })} /></label><TrackerView title="Execução" tracker={{ value: actor.execution, max: actor.executionMax }} /><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 corte</button><button onClick={() => stressAction(2)}>+2 cortes</button><button onClick={() => stressAction(3)}>+3 cortes</button><button className="ghost" onClick={() => patch({ execution: 0, dead: false, status: 'Ativo' })}>Reset execução</button></div></div> : <div className="tracker-control"><div className="stat-grid"><div><span>Estresse</span><strong>{actor.stress}/{Math.max(1, Number(actor.maxStress || 6) - Number(actor.injuries || 0))}</strong></div><div><span>Ferimentos</span><strong>{actor.injuries}/3</strong></div></div><label>Estresse máximo base<input type="number" min="1" max="20" value={actor.maxStress} onChange={e => patch({ maxStress: clamp(e.target.value, 1, 20) })} /></label><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 stress</button><button onClick={() => stressAction(2)}>+2 stress</button><button onClick={() => stressAction(3)}>+3 stress</button><button onClick={() => stressAction(1, true)}>+1 não letal</button><button className="ghost" onClick={() => patch({ stress: 0, injuries: 0, dead: false, status: 'Ativo' })}>Curar/reset</button></div></div>}<div className="sheet-actions"><button className="danger" onClick={() => remove(actor.id)}>Remover</button><button className="ghost" onClick={() => patch({ dead: !actor.dead, status: actor.dead ? 'Ativo' : 'Morto' })}>{actor.dead ? 'Desmarcar morto' : 'Marcar morto'}</button></div></div>
+}
+
+function ActorPublicCard({ actor }) {
+  return <div className={`public-actor ${actor.dead ? 'dead' : ''}`}>{actor.image ? <img src={actor.image} alt={actor.name} /> : <div className="public-placeholder">◇</div>}<h4>{actor.name}</h4><p className="eyebrow">{actor.subtitle || actor.type}</p><p>{actor.publicInfo || 'Sem informações públicas ainda.'}</p><span className="pill">{actor.status}</span></div>
+}
+
+function HuntRulesReference() {
+  return <Card title="Referência rápida da caçada" ref="p. 34–45"><div className="grid two compact-grid"><div className="mini"><strong>Fluxo</strong><List items={['Briefing → chegada → rastrear palácio/host → investigar traumas → preparar/descansar → execução → exfiltração.', 'No começo da missão, exorcistas chegam sem stress/ferimentos/hooks, com 3 bursts e kit cheio.', 'Pecado fora do palácio pode recuar e regenerar; execução definitiva acontece no palácio.']} /></div><div className="mini"><strong>Conflito e morte</strong><List items={['Conflitos começam arriscados por padrão.', 'Aliados/exorcistas acumulam stress; ao encher, ganham ferimento. Com 3 ferimentos, qualquer novo stress causa morte.', 'Pecados usam Talismã de Execução: quando enche, são derrotados/executados ou ativam fase preparada pelo Mestre.']} /></div></div></Card>
+}
+
+function Home({ setActive, auth }) {
   return <section className="stack gap-xl">
     <div className="hero-panel">
       <div><p className="eyebrow">Resumo jogável + ferramentas</p><h2>Caçadas, trauma, pressão e execução — tudo pronto para mesa.</h2><p>Esta versão atualizada inclui regras essenciais, criação, agendas, blasfêmias, kit, armas, marcas, caçada, Admin, Pecados, oponentes, rolador, talismãs e ficha digital salva no navegador.</p><div className="hero-actions"><button className="primary" onClick={() => setActive('sheet')}>Criar/abrir ficha</button><button className="ghost" onClick={() => setActive('tools')}>Ferramentas de mesa</button></div></div>

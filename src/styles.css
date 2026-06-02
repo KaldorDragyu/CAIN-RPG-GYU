@@ -37,3 +37,31 @@
   .card { break-inside: avoid; box-shadow:none; border-color:#888; }
   body { background:#fff; color:#111; }
 }
+
+/* Login, sessão e caçada ao vivo */
+.top-actions, .session-note, .button-column { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+.session-note { flex-direction: column; align-items: flex-start; }
+.session-note span { color: var(--muted); word-break: break-all; }
+.mission-header { display: grid; grid-template-columns: 120px 1fr; gap: 1.2rem; align-items: center; padding: 1.2rem; border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: var(--shadow); }
+.mission-header img { width: 120px; height: 120px; object-fit: cover; border-radius: 22px; border: 1px solid var(--line); background: #080a0f; }
+.mission-logo { width: 120px; height: 120px; border-radius: 22px; display:grid; place-items:center; font-size: 3rem; border: 1px solid var(--line); background: radial-gradient(circle, rgba(255,255,255,.12), rgba(255,255,255,.03)); }
+.tracker-control { display: grid; gap: .6rem; margin: .8rem 0; }
+.tracker-control label { margin: 0; }
+.slashes.read-only { display: flex; gap: .35rem; flex-wrap: wrap; }
+.slashes.read-only span { min-width: 34px; min-height: 34px; display:grid; place-items:center; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); }
+.slashes.read-only span.marked { color: var(--danger); border-color: rgba(255, 80, 80, .65); background: rgba(255, 80, 80, .1); }
+.actor-editor { border: 1px solid var(--line); border-radius: 22px; padding: 1rem; background: rgba(255,255,255,.035); display: grid; gap: .85rem; }
+.actor-editor.dead { opacity: .72; filter: grayscale(.35); border-color: rgba(255,80,80,.4); }
+.actor-image { width: 100%; min-height: 150px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: rgba(0,0,0,.22); display:grid; place-items:center; color: var(--muted); font-size: 2rem; }
+.actor-image img { width: 100%; height: 190px; object-fit: cover; display:block; }
+.public-actor { border: 1px solid var(--line); border-radius: 20px; padding: .9rem; background: rgba(255,255,255,.035); display: grid; gap: .4rem; }
+.public-actor.dead { opacity: .6; filter: grayscale(.6); }
+.public-actor img, .public-placeholder { width: 100%; height: 170px; object-fit: cover; border-radius: 16px; border: 1px solid var(--line); background: rgba(0,0,0,.24); display:grid; place-items:center; font-size: 2rem; }
+.public-actor h4 { margin: .2rem 0 0; }
+.log-list { display: grid; gap: .65rem; max-height: 460px; overflow: auto; padding-right: .2rem; }
+.log { border: 1px solid var(--line); border-radius: 14px; padding: .7rem; background: rgba(255,255,255,.035); }
+.log.private { border-color: rgba(255, 210, 80, .35); background: rgba(255, 210, 80, .07); }
+.log small { color: var(--muted); }
+.log p { margin: .25rem 0 0; }
+code { background: rgba(255,255,255,.08); padding: .1rem .35rem; border-radius: 7px; border: 1px solid var(--line); }
+@media (max-width: 780px) { .mission-header { grid-template-columns: 1fr; } .mission-header img, .mission-logo { width: 100%; height: 180px; } }
