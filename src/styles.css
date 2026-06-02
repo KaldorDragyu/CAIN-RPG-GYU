@@ -65,3 +65,95 @@
 .log p { margin: .25rem 0 0; }
 code { background: rgba(255,255,255,.08); padding: .1rem .35rem; border-radius: 7px; border: 1px solid var(--line); }
 @media (max-width: 780px) { .mission-header { grid-template-columns: 1fr; } .mission-header img, .mission-logo { width: 100%; height: 180px; } }
+
+/* Celular CAIN / Perfil do jogador */
+.phone-shell {
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: linear-gradient(160deg, rgba(255,255,255,.065), rgba(255,255,255,.02));
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.phone-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(0,0,0,.22);
+}
+.phone-avatar {
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--purple2);
+  font-size: 2rem;
+  background: rgba(0,0,0,.25);
+}
+.phone-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.phone-top h3 { margin: .1rem 0; }
+.phone-top small { color: var(--muted); }
+.phone-tabs {
+  display: flex;
+  gap: .45rem;
+  flex-wrap: wrap;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,.025);
+}
+.phone-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.045);
+  color: var(--text);
+  padding: .55rem .85rem;
+}
+.phone-tabs button.active { background: linear-gradient(135deg,var(--purple),#5f00c8); border-color:#df7cff; }
+.phone-screen { padding: 1rem; min-height: 520px; }
+.phone-grid { display: grid; grid-template-columns: 310px 1fr; gap: 1rem; }
+.message-list { display: grid; align-content: start; gap: .55rem; max-height: 640px; overflow: auto; }
+.message-list button {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  padding: .75rem;
+}
+.message-list button.unread { border-color: rgba(110,247,255,.55); background: rgba(110,247,255,.08); }
+.message-list button.active { border-color: var(--purple2); background: rgba(180,0,255,.12); }
+.message-list span, .message-list small { display:block; color: var(--muted); margin-top:.2rem; }
+.message-view {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 1rem;
+  background: rgba(0,0,0,.17);
+  min-height: 420px;
+}
+.message-view pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  line-height: 1.55;
+  font-family: inherit;
+}
+.friend-card { border: 1px solid var(--line); border-radius: 14px; padding: .75rem; background: rgba(0,0,0,.18); display:grid; gap:.2rem; margin:.5rem 0; }
+.friend-card small { color: var(--muted); }
+.chat-view { display:grid; grid-template-rows: auto 1fr auto; gap:.8rem; }
+.chat-box { display:flex; flex-direction:column; gap:.6rem; max-height: 430px; overflow:auto; padding-right:.2rem; }
+.chat-bubble { max-width: 78%; border:1px solid var(--line); border-radius: 16px 16px 16px 4px; background: rgba(255,255,255,.055); padding: .65rem .8rem; }
+.chat-bubble.mine { align-self:flex-end; border-radius: 16px 16px 4px 16px; border-color: rgba(227,64,255,.55); background: rgba(180,0,255,.18); }
+.chat-bubble p { margin:.1rem 0 .25rem; color: var(--text); }
+.chat-bubble small { color: var(--muted); }
+.chat-input { display:grid; grid-template-columns: 1fr auto; gap:.6rem; }
+@media (max-width: 850px) {
+  .phone-top { align-items: flex-start; flex-direction: column; }
+  .phone-grid { grid-template-columns: 1fr; }
+  .phone-screen { padding: .75rem; }
+  .chat-input { grid-template-columns: 1fr; }
+}
