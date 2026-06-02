@@ -251,42 +251,69 @@ const defaultCampaign = () => ({
 function useCampaign(auth) {
   const [campaign, setCampaign] = useState(() => { try { return { ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) } } catch { return defaultCampaign() } })
   const [status, setStatus] = useState('')
+  const [lastSync, setLastSync] = useState('')
+  const [realtimeStatus, setRealtimeStatus] = useState('auto-sinc ligando...')
+  const refreshingRef = useRef(false)
   const canWrite = auth.role === 'master'
 
-  useEffect(() => { refresh() }, [auth.role, auth.user?.id])
-  useEffect(() => {
-    if (!auth.supabaseReady || !supabase || auth.role === 'guest') return
-    const channel = supabase.channel('cain-campaign-state')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_state', filter: 'id=eq.main' }, payload => {
-        if (payload?.new?.data) { setCampaign({ ...defaultCampaign(), ...payload.new.data }); localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(payload.new.data)) }
-      }).subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [auth.supabaseReady, auth.role])
+  useEffect(() => { refresh(false) }, [auth.role, auth.user?.id])
 
-  async function refresh() {
-    if (auth.supabaseReady && supabase && auth.role !== 'guest') {
-      const { data, error } = await supabase.from('campaign_state').select('data').eq('id', 'main').maybeSingle()
-      if (!error && data?.data) { setCampaign({ ...defaultCampaign(), ...data.data }); localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(data.data)); return }
-      if (canWrite) await save(defaultCampaign(), 'Estado inicial criado.')
-    } else {
-      try { setCampaign({ ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) }) } catch { setCampaign(defaultCampaign()) }
+  useEffect(() => {
+    if (auth.role === 'guest') return
+    // Fallback: mesmo se o Realtime do Supabase não estiver habilitado na tabela,
+    // players e mestre puxam a missão a cada poucos segundos.
+    const interval = setInterval(() => refresh(true), auth.supabaseReady ? 3000 : 2500)
+    if (!auth.supabaseReady || !supabase) return () => clearInterval(interval)
+
+    const onChange = () => refresh(true)
+    const channel = supabase.channel('cain-campaign-state-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'campaign_state', filter: 'id=eq.main' }, onChange)
+      .subscribe(state => setRealtimeStatus(state === 'SUBSCRIBED' ? 'tempo real ativo' : 'auto-sinc ativo'))
+
+    return () => { clearInterval(interval); supabase.removeChannel(channel) }
+  }, [auth.supabaseReady, auth.role, auth.user?.id])
+
+  async function refresh(silent = false) {
+    if (refreshingRef.current) return
+    refreshingRef.current = true
+    try {
+      if (auth.supabaseReady && supabase && auth.role !== 'guest') {
+        const { data, error } = await supabase.from('campaign_state').select('data').eq('id', 'main').maybeSingle()
+        if (!error && data?.data) {
+          const next = { ...defaultCampaign(), ...data.data }
+          setCampaign(next)
+          localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(next))
+          setLastSync(new Date().toLocaleTimeString())
+          if (!silent) setStatus('Missão sincronizada.')
+          return
+        }
+        if (canWrite) await save(defaultCampaign(), 'Estado inicial criado.')
+        else if (!silent && error) setStatus(`Erro ao atualizar: ${error.message}`)
+      } else {
+        try { setCampaign({ ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) }) } catch { setCampaign(defaultCampaign()) }
+        setLastSync(new Date().toLocaleTimeString())
+      }
+    } finally {
+      refreshingRef.current = false
     }
   }
 
   async function save(next, okMessage = 'Salvo.') {
-    setCampaign(next)
-    localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(next))
+    const payload = { ...next, version: 3, updatedAt: new Date().toISOString() }
+    setCampaign(payload)
+    localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(payload))
+    setLastSync(new Date().toLocaleTimeString())
     if (auth.supabaseReady && supabase && canWrite) {
-      const { error } = await supabase.from('campaign_state').upsert({ id: 'main', data: next, updated_at: new Date().toISOString() })
+      const { error } = await supabase.from('campaign_state').upsert({ id: 'main', data: payload, updated_at: new Date().toISOString() })
       setStatus(error ? `Erro ao salvar no Supabase: ${error.message}` : okMessage)
     } else setStatus(okMessage)
   }
   function update(updater, okMessage) {
     if (!canWrite) return setStatus('Apenas o Mestre pode alterar a caçada.')
     const next = typeof updater === 'function' ? updater(campaign) : { ...campaign, ...updater }
-    save({ ...next, version: 2 }, okMessage)
+    save(next, okMessage)
   }
-  return { campaign, update, refresh, status, canWrite }
+  return { campaign, update, refresh, status, canWrite, lastSync, realtimeStatus }
 }
 
 function readImageFile(file, cb) {
@@ -313,7 +340,7 @@ function HuntHeader({ campaign }) {
 }
 
 function MasterHuntPanel({ store }) {
-  const { campaign, update, refresh } = store
+  const { campaign, update, refresh, lastSync, realtimeStatus } = store
   const [actorType, setActorType] = useState('npc')
   const [logText, setLogText] = useState('')
   const actorUpdate = (id, patch) => update(c => ({ ...c, actors: c.actors.map(a => a.id === id ? { ...a, ...patch } : a) }), 'Ator atualizado.')
@@ -324,6 +351,7 @@ function MasterHuntPanel({ store }) {
   const setTracker = (which, patch) => update(c => ({ ...c, [which]: { ...c[which], ...patch } }), 'Talismã atualizado.')
   return <div className="stack gap-lg">
     <HuntHeader campaign={campaign} />
+    <div className="sync-strip"><span className="live-dot" /> <strong>Sincronização automática:</strong> {realtimeStatus || 'ativa'} {lastSync && <small>Última atualização: {lastSync}</small>} <button className="ghost mini-button" onClick={() => refresh(false)}>Atualizar agora</button></div>
     <div className="grid two"><Card title="Configuração da missão"><div className="form-grid"><label>Organização<input value={campaign.orgName} onChange={e => update({ orgName: e.target.value })} /></label><label>Código<input value={campaign.missionCode} onChange={e => update({ missionCode: e.target.value })} /></label><label>Título da missão<input value={campaign.missionTitle} onChange={e => update({ missionTitle: e.target.value })} /></label><label>Status<select value={campaign.status} onChange={e => update({ status: e.target.value })}><option>Briefing</option><option>Investigação</option><option>Preparação</option><option>Conflito</option><option>Execução</option><option>Exfiltração</option><option>Encerrada</option></select></label><label>Logo por URL<input value={campaign.logo || ''} onChange={e => update({ logo: e.target.value })} placeholder="https://..." /></label><label>Upload de logo<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => update({ logo: data }, 'Logo atualizada.'))} /></label><label className="check"><input type="checkbox" checked={!!campaign.showTrackers} onChange={e => update({ showTrackers: e.target.checked })} /> Mostrar Tensão/Pressão aos players</label></div><label>Texto de abertura para players<textarea value={campaign.introPublic} onChange={e => update({ introPublic: e.target.value })} /></label><label>Briefing público<textarea value={campaign.briefingPublic} onChange={e => update({ briefingPublic: e.target.value })} /></label><label>Notas secretas do Mestre<textarea value={campaign.briefingPrivate} onChange={e => update({ briefingPrivate: e.target.value })} /></label><button className="ghost" onClick={refresh}>Atualizar do banco</button></Card>
     <Card title="Tensão e Pressão"><TrackerControl title="Tensão" tracker={campaign.tension} onChange={patch => setTracker('tension', patch)} /><TrackerControl title="Pressão" tracker={campaign.pressure} onChange={patch => setTracker('pressure', patch)} /><div className="sheet-actions"><button className="primary" onClick={tickTension}>Marcar +1 Tensão</button><button className="ghost" onClick={() => setTracker('tension', { value: 0 })}>Zerar Tensão</button><button className="ghost" onClick={() => setTracker('pressure', { value: 0 })}>Zerar Pressão</button></div><p className="muted">Quando Tensão enche, ela zera e aumenta Pressão. Quando Pressão enche, a situação sai do controle.</p></Card></div>
     <Card title="Elenco da caçada"><div className="sheet-actions"><select value={actorType} onChange={e => setActorType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="enemy">Inimigo / Pecado</option><option value="player">Exorcista</option></select><button className="primary" onClick={addActor}>Adicionar</button></div><div className="grid two">{campaign.actors.map(a => <ActorEditor key={a.id} actor={a} update={actorUpdate} remove={deleteActor} />)}</div></Card>
@@ -332,10 +360,10 @@ function MasterHuntPanel({ store }) {
 }
 
 function PlayerHuntPanel({ store }) {
-  const { campaign, refresh } = store
+  const { campaign, refresh, lastSync, realtimeStatus } = store
   const visibleActors = (campaign.actors || []).filter(a => a.visible)
   const visibleLogs = (campaign.logs || []).filter(l => l.public)
-  return <div className="stack gap-lg"><HuntHeader campaign={campaign} /><div className="grid two"><Card title="Briefing público"><p>{campaign.briefingPublic}</p><button className="ghost" onClick={refresh}>Atualizar missão</button></Card>{campaign.showTrackers && <Card title="Estado da área"><TrackerView title="Tensão" tracker={campaign.tension} /><TrackerView title="Pressão" tracker={campaign.pressure} /></Card>}</div><Card title="NPCs e alvos revelados"><div className="grid three">{visibleActors.length ? visibleActors.map(a => <ActorPublicCard key={a.id} actor={a} />) : <p className="muted">Nenhum NPC revelado ainda.</p>}</div></Card><Card title="Registro público"><div className="log-list">{visibleLogs.length ? visibleLogs.map(l => <div key={l.id} className="log public"><small>{l.at}</small><p>{l.text}</p></div>) : <p className="muted">Nenhum registro público ainda.</p>}</div></Card></div>
+  return <div className="stack gap-lg"><HuntHeader campaign={campaign} /><div className="sync-strip"><span className="live-dot" /> <strong>Sincronização automática:</strong> {realtimeStatus || 'ativa'} {lastSync && <small>Última atualização: {lastSync}</small>} <button className="ghost mini-button" onClick={() => refresh(false)}>Atualizar agora</button></div><div className="grid two"><Card title="Briefing público"><p>{campaign.briefingPublic}</p><p className="muted">Esta área atualiza sozinha quando o Mestre salva alterações.</p></Card>{campaign.showTrackers && <Card title="Estado da área"><TrackerView title="Tensão" tracker={campaign.tension} /><TrackerView title="Pressão" tracker={campaign.pressure} /></Card>}</div><Card title="NPCs e alvos revelados"><div className="grid three">{visibleActors.length ? visibleActors.map(a => <ActorPublicCard key={a.id} actor={a} />) : <p className="muted">Nenhum NPC revelado ainda.</p>}</div></Card><Card title="Registro público"><div className="log-list">{visibleLogs.length ? visibleLogs.map(l => <div key={l.id} className="log public"><small>{l.at}</small><p>{l.text}</p></div>) : <p className="muted">Nenhum registro público ainda.</p>}</div></Card></div>
 }
 
 function TrackerControl({ title, tracker, onChange }) {
@@ -395,6 +423,8 @@ function usePlayerHub(auth) {
   const [messages, setMessages] = useState([])
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
+  const [lastSync, setLastSync] = useState('')
+  const refreshingRef = useRef(false)
 
   function readLocal() {
     try { return JSON.parse(localStorage.getItem(HUB_LOCAL_KEY)) || {} } catch { return {} }
@@ -424,37 +454,65 @@ function usePlayerHub(auth) {
     if (!data?.length) await supabase.from('inbox_messages').insert({ user_id: userId, from_name: 'CAIN // CENTRAL', subject: 'DOCREF // CHAMADO INICIAL', body: defaultMissionMail(auth.user?.name).body })
   }
 
-  async function refresh() {
-    if (auth.role === 'guest') return
-    setLoading(true)
-    setStatus('')
-    if (auth.supabaseReady && supabase) {
-      await ensureDefaultInboxOnline()
-      const [p, i, n, c, m] = await Promise.all([
-        supabase.from('profiles').select('id,email,display_name,role,avatar_url,character_name,organization_title').order('display_name', { ascending: true }),
-        supabase.from('inbox_messages').select('*').order('created_at', { ascending: false }),
-        supabase.from('player_notes').select('*').order('updated_at', { ascending: false }),
-        supabase.from('contacts').select('id,owner_id,contact_id,created_at,contact:profiles!contacts_contact_id_fkey(id,email,display_name,role,avatar_url,character_name)').order('created_at', { ascending: false }),
-        supabase.from('chat_messages').select('*').order('created_at', { ascending: true }).limit(200)
-      ])
-      if (p.error || i.error || n.error || c.error || m.error) setStatus([p.error, i.error, n.error, c.error, m.error].filter(Boolean).map(e => e.message).join(' | '))
-      setProfiles(p.data || [])
-      setInbox(i.data || [])
-      setNotes(n.data || [])
-      setContacts(c.data || [])
-      setMessages(m.data || [])
-    } else {
-      const data = ensureLocal()
-      setProfiles(data.profiles)
-      setInbox(data.inbox[userId] || [])
-      setNotes(data.notes[userId] || [])
-      setContacts((data.contacts[userId] || []).map(id => ({ id: `${userId}-${id}`, owner_id: userId, contact_id: id, contact: data.profiles.find(p => p.id === id) })).filter(x => x.contact))
-      setMessages((data.messages || []).filter(x => x.sender_id === userId || x.receiver_id === userId || auth.role === 'master'))
+  async function refresh(silent = false) {
+    if (auth.role === 'guest' || refreshingRef.current) return
+    refreshingRef.current = true
+    if (!silent) { setLoading(true); setStatus('') }
+    try {
+      if (auth.supabaseReady && supabase) {
+        await ensureDefaultInboxOnline()
+        const [p, i, n, c, m] = await Promise.all([
+          supabase.from('profiles').select('id,email,display_name,role,avatar_url,character_name,organization_title').order('display_name', { ascending: true }),
+          supabase.from('inbox_messages').select('*').order('created_at', { ascending: false }),
+          supabase.from('player_notes').select('*').order('updated_at', { ascending: false }),
+          supabase.from('contacts').select('id,owner_id,contact_id,created_at,contact:profiles!contacts_contact_id_fkey(id,email,display_name,role,avatar_url,character_name)').order('created_at', { ascending: false }),
+          supabase.from('chat_messages').select('*').order('created_at', { ascending: true }).limit(200)
+        ])
+        if (p.error || i.error || n.error || c.error || m.error) setStatus([p.error, i.error, n.error, c.error, m.error].filter(Boolean).map(e => e.message).join(' | '))
+        setProfiles(p.data || [])
+        setInbox(i.data || [])
+        setNotes(n.data || [])
+        setContacts(c.data || [])
+        setMessages(m.data || [])
+      } else {
+        const data = ensureLocal()
+        setProfiles(data.profiles)
+        setInbox(data.inbox[userId] || [])
+        setNotes(data.notes[userId] || [])
+        setContacts((data.contacts[userId] || []).map(id => ({ id: `${userId}-${id}`, owner_id: userId, contact_id: id, contact: data.profiles.find(p => p.id === id) })).filter(x => x.contact))
+        setMessages((data.messages || []).filter(x => x.sender_id === userId || x.receiver_id === userId || auth.role === 'master'))
+      }
+      setLastSync(new Date().toLocaleTimeString())
+    } finally {
+      refreshingRef.current = false
+      if (!silent) setLoading(false)
     }
-    setLoading(false)
   }
 
-  useEffect(() => { refresh() }, [auth.user?.id, auth.role])
+  useEffect(() => { refresh(false) }, [auth.user?.id, auth.role])
+
+  useEffect(() => {
+    if (auth.role === 'guest') return
+    // O polling é proposital: ele garante atualização automática mesmo se o Realtime
+    // ainda não tiver sido habilitado no Supabase ou cair temporariamente.
+    const interval = setInterval(() => refresh(true), auth.supabaseReady ? 3500 : 2500)
+    if (!auth.supabaseReady || !supabase) return () => clearInterval(interval)
+
+    const onChange = () => refresh(true)
+    let channel = supabase.channel(`cain-phone-live-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onChange)
+      .on('postgres_changes', auth.role === 'master' ? { event: '*', schema: 'public', table: 'inbox_messages' } : { event: '*', schema: 'public', table: 'inbox_messages', filter: `user_id=eq.${userId}` }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_notes', filter: `owner_id=eq.${userId}` }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts', filter: `owner_id=eq.${userId}` }, onChange)
+    channel = auth.role === 'master'
+      ? channel.on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, onChange)
+      : channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `sender_id=eq.${userId}` }, onChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `receiver_id=eq.${userId}` }, onChange)
+    channel.subscribe()
+
+    return () => { clearInterval(interval); supabase.removeChannel(channel) }
+  }, [auth.supabaseReady, auth.role, auth.user?.id])
 
   async function updateMyProfile(patch) {
     if (auth.supabaseReady && supabase) {
@@ -465,12 +523,12 @@ function usePlayerHub(auth) {
       data.profiles = data.profiles.map(p => p.id === userId ? { ...p, ...patch } : p)
       writeLocal(data); setStatus('Perfil local atualizado.')
     }
-    refresh()
+    refresh(false)
   }
   async function markRead(id) {
     if (auth.supabaseReady && supabase) await supabase.from('inbox_messages').update({ is_read: true }).eq('id', id)
     else { const d = ensureLocal(); d.inbox[userId] = (d.inbox[userId] || []).map(x => x.id === id ? { ...x, is_read: true } : x); writeLocal(d) }
-    refresh()
+    refresh(true)
   }
   async function saveNote(note) {
     const next = { ...note, title: note.title || 'Nota sem título', updated_at: new Date().toISOString() }
@@ -480,12 +538,12 @@ function usePlayerHub(auth) {
     } else {
       const d = ensureLocal(); const id = next.id && !String(next.id).startsWith('new-') ? next.id : crypto.randomUUID(); d.notes[userId] = [{ ...next, id }, ...(d.notes[userId] || []).filter(x => x.id !== next.id && x.id !== id)]; writeLocal(d)
     }
-    refresh()
+    refresh(false)
   }
   async function deleteNote(id) {
     if (auth.supabaseReady && supabase) await supabase.from('player_notes').delete().eq('id', id)
     else { const d = ensureLocal(); d.notes[userId] = (d.notes[userId] || []).filter(x => x.id !== id); writeLocal(d) }
-    refresh()
+    refresh(false)
   }
   async function addContactByEmail(email) {
     const clean = email.trim().toLowerCase()
@@ -498,23 +556,23 @@ function usePlayerHub(auth) {
     } else {
       const d = ensureLocal(); const found = d.profiles.find(p => p.email.toLowerCase() === clean); if (!found) { setStatus('Usuário local não encontrado.'); return } d.contacts[userId] = Array.from(new Set([...(d.contacts[userId] || []), found.id])); writeLocal(d); setStatus('Contato local adicionado.')
     }
-    refresh()
+    refresh(false)
   }
   async function sendMessage(receiverId, body) {
     const text = body.trim(); if (!text || !receiverId) return
     if (auth.supabaseReady && supabase) await supabase.from('chat_messages').insert({ sender_id: userId, receiver_id: receiverId, body: text })
     else { const d = ensureLocal(); d.messages.push({ id: crypto.randomUUID(), sender_id: userId, receiver_id: receiverId, body: text, created_at: new Date().toISOString() }); writeLocal(d) }
-    refresh()
+    refresh(true)
   }
   async function sendInbox(user_id, subject, body) {
     if (auth.role !== 'master') return setStatus('Apenas Mestre pode enviar mensagens de caixa de entrada.')
     if (!user_id || !subject.trim() || !body.trim()) return setStatus('Escolha um player e preencha assunto/corpo.')
     if (auth.supabaseReady && supabase) await supabase.from('inbox_messages').insert({ user_id, from_name: auth.user?.name || 'Mestre', subject, body })
     else { const d = ensureLocal(); d.inbox[user_id] ||= []; d.inbox[user_id].unshift({ id: crypto.randomUUID(), from_name: auth.user?.name || 'Mestre', subject, body, is_read: false, created_at: new Date().toISOString() }); writeLocal(d) }
-    setStatus('Mensagem enviada para a caixa de entrada.'); refresh()
+    setStatus('Mensagem enviada para a caixa de entrada.'); refresh(false)
   }
 
-  return { profiles, inbox, notes, contacts, messages, status, loading, refresh, updateMyProfile, markRead, saveNote, deleteNote, addContactByEmail, sendMessage, sendInbox }
+  return { profiles, inbox, notes, contacts, messages, status, loading, lastSync, refresh, updateMyProfile, markRead, saveNote, deleteNote, addContactByEmail, sendMessage, sendInbox }
 }
 
 function PlayerPhonePage({ auth }) {
@@ -527,7 +585,7 @@ function PlayerPhonePage({ auth }) {
     <SectionTitle eyebrow="Dispositivo CAIN" title="Perfil do jogador">Uma área estilo celular para caixa de entrada, anotações, contatos e chat da operação.</SectionTitle>
     {hub.status && <div className="result-box"><strong>Status:</strong> {hub.status}</div>}
     <div className="phone-shell">
-      <div className="phone-top"><div className="phone-avatar">{me.avatar_url ? <img src={me.avatar_url} alt={me.display_name} /> : '▽'}</div><div><p className="eyebrow">{me.organization_title || 'CAIN // Célula GYU'}</p><h3>{me.character_name || me.display_name || auth.user?.email}</h3><small>{auth.user?.email}</small></div><button className="ghost" onClick={hub.refresh}>{hub.loading ? '...' : 'Atualizar'}</button></div>
+      <div className="phone-top"><div className="phone-avatar">{me.avatar_url ? <img src={me.avatar_url} alt={me.display_name} /> : '▽'}</div><div><p className="eyebrow">{me.organization_title || 'CAIN // Célula GYU'}</p><h3>{me.character_name || me.display_name || auth.user?.email}</h3><small>{auth.user?.email}</small><small className="sync-note"><span className="live-dot" /> Auto-sinc {hub.lastSync ? `// ${hub.lastSync}` : 'ativo'}</small></div><button className="ghost" onClick={() => hub.refresh(false)}>{hub.loading ? '...' : 'Atualizar agora'}</button></div>
       <div className="phone-tabs">{tabs.map(t => <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{labels[t]}</button>)}</div>
       <div className="phone-screen">
         {tab === 'inbox' && <InboxPanel inbox={hub.inbox} markRead={hub.markRead} />}

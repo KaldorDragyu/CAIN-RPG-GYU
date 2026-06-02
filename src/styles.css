@@ -157,3 +157,36 @@ code { background: rgba(255,255,255,.08); padding: .1rem .35rem; border-radius: 
   .phone-screen { padding: .75rem; }
   .chat-input { grid-template-columns: 1fr; }
 }
+
+.sync-strip {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  border: 1px solid rgba(181, 111, 255, .25);
+  background: rgba(74, 24, 120, .16);
+  border-radius: 14px;
+  padding: .7rem .9rem;
+  color: var(--text);
+}
+.sync-strip small, .sync-note {
+  color: var(--muted);
+  font-size: .78rem;
+}
+.live-dot {
+  width: .6rem;
+  height: .6rem;
+  border-radius: 999px;
+  display: inline-block;
+  background: #8cffc1;
+  box-shadow: 0 0 12px rgba(140, 255, 193, .85);
+  vertical-align: middle;
+}
+.mini-button {
+  padding: .35rem .65rem;
+  min-height: auto;
+}
+.sync-note {
+  display: block;
+  margin-top: .15rem;
+}

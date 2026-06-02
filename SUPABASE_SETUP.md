@@ -261,3 +261,26 @@ where lower(email) = lower('gyus2.crtti@gmail.com');
 - **Mestre:** controla caçada, vê players, envia mensagens individuais para a caixa de entrada e monitora chat.
 
 Quando você quiser criar a mensagem inicial do Marco Kirstein, entre como Mestre → **Perfil → Mestre** e envie uma mensagem individual para o player escolhido.
+
+## 5. Atualização automática / tempo real
+
+A versão v16 já atualiza sozinha a aba **Caçada**, o **Celular CAIN**, a caixa de entrada e o chat. Ela usa dois mecanismos ao mesmo tempo:
+
+1. **Realtime do Supabase**, quando estiver habilitado.
+2. **Polling de segurança** a cada poucos segundos, então os players atualizam mesmo que o Realtime não esteja ligado.
+
+Para deixar o Realtime mais rápido, rode também este SQL no **SQL Editor**:
+
+```sql
+do $$
+begin
+  begin alter publication supabase_realtime add table public.campaign_state; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.profiles; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.inbox_messages; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.player_notes; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.contacts; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.chat_messages; exception when duplicate_object then null; end;
+end $$;
+```
+
+Se o SQL acima acusar que a publicação já existe ou que a tabela já está configurada, não tem problema: o polling do site continua funcionando.

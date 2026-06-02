@@ -156,3 +156,11 @@ No começo cada player recebe uma mensagem padrão de CAIN. Depois, você pode e
 ## Observação sobre imagens
 
 Upload de imagem pequena é salvo dentro do estado da caçada como base64. Para muitas imagens, prefira colar URLs ou futuramente migrar para Supabase Storage.
+
+## Atualização automática v16
+
+A aba **Caçada ao Vivo** e o **Celular CAIN** agora fazem auto-sincronização. Quando o Mestre salva NPC, briefing, tensão, pressão, registro ou mensagem, os players recebem a atualização sem precisar clicar em “Atualizar missão”.
+
+Mesmo assim existe um botão **Atualizar agora** como plano B. O site usa Realtime do Supabase quando possível e também consulta o banco a cada poucos segundos como segurança.
+
+Depois de atualizar no GitHub, rode o SQL extra de Realtime no final do arquivo `SUPABASE_SETUP.md`.
