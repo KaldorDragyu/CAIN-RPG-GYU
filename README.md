@@ -164,3 +164,11 @@ A aba **Caçada ao Vivo** e o **Celular CAIN** agora fazem auto-sincronização.
 Mesmo assim existe um botão **Atualizar agora** como plano B. O site usa Realtime do Supabase quando possível e também consulta o banco a cada poucos segundos como segurança.
 
 Depois de atualizar no GitHub, rode o SQL extra de Realtime no final do arquivo `SUPABASE_SETUP.md`.
+
+
+## Atualização v17 — visual da caçada
+
+- Cards de atores agora têm cor por tipo: NPC azul, Exorcista/Aliado amarelo, Inimigo/Boss vermelho.
+- Adicionado tipo **Boss** no elenco da caçada.
+- Imagens de NPCs, exorcistas e inimigos agora usam por padrão **Mostrar inteira**, evitando cortar ou esticar o personagem.
+- Cada ator possui opção **Enquadramento da imagem**: `Mostrar inteira` para retratos/corpo completo ou `Preencher box` para imagens horizontais/cenários.

@@ -229,7 +229,20 @@ function AuthPage({ auth, setActive }) {
 }
 
 const CAMPAIGN_KEY = 'cain-live-campaign-state-v2'
-const newActor = (type = 'npc') => ({ id: crypto.randomUUID(), type, name: type === 'enemy' ? 'Pecado sem nome' : 'NPC sem nome', subtitle: '', image: '', visible: type !== 'enemy', status: 'Ativo', publicInfo: '', privateInfo: '', category: type === 'enemy' ? 2 : 0, stress: 0, maxStress: 6, injuries: 0, execution: 0, executionMax: type === 'enemy' ? 10 : 0, dead: false })
+const actorTypeLabels = { npc: 'NPC', ally: 'Aliado', player: 'Exorcista', enemy: 'Inimigo', boss: 'Boss' }
+const hostileTypes = ['enemy', 'boss']
+const isHostileType = type => hostileTypes.includes(type)
+const actorTypeDefaults = type => ({
+  npc: { name: 'NPC sem nome', visible: true, category: 0, executionMax: 0, icon: '◇' },
+  ally: { name: 'Aliado sem nome', visible: true, category: 0, executionMax: 0, icon: '◆' },
+  player: { name: 'Exorcista sem nome', visible: true, category: 1, executionMax: 0, icon: '△' },
+  enemy: { name: 'Pecado sem nome', visible: false, category: 2, executionMax: 10, icon: '☠' },
+  boss: { name: 'Boss sem nome', visible: false, category: 4, executionMax: 14, icon: '☠' }
+}[type] || { name: 'NPC sem nome', visible: true, category: 0, executionMax: 0, icon: '◇' })
+const newActor = (type = 'npc') => {
+  const defaults = actorTypeDefaults(type)
+  return { id: crypto.randomUUID(), type, name: defaults.name, subtitle: '', image: '', imageFit: 'contain', visible: defaults.visible, status: 'Ativo', publicInfo: '', privateInfo: '', category: defaults.category, stress: 0, maxStress: 6, injuries: 0, execution: 0, executionMax: defaults.executionMax, dead: false }
+}
 const defaultCampaign = () => ({
   id: 'main',
   version: 2,
@@ -354,7 +367,7 @@ function MasterHuntPanel({ store }) {
     <div className="sync-strip"><span className="live-dot" /> <strong>Sincronização automática:</strong> {realtimeStatus || 'ativa'} {lastSync && <small>Última atualização: {lastSync}</small>} <button className="ghost mini-button" onClick={() => refresh(false)}>Atualizar agora</button></div>
     <div className="grid two"><Card title="Configuração da missão"><div className="form-grid"><label>Organização<input value={campaign.orgName} onChange={e => update({ orgName: e.target.value })} /></label><label>Código<input value={campaign.missionCode} onChange={e => update({ missionCode: e.target.value })} /></label><label>Título da missão<input value={campaign.missionTitle} onChange={e => update({ missionTitle: e.target.value })} /></label><label>Status<select value={campaign.status} onChange={e => update({ status: e.target.value })}><option>Briefing</option><option>Investigação</option><option>Preparação</option><option>Conflito</option><option>Execução</option><option>Exfiltração</option><option>Encerrada</option></select></label><label>Logo por URL<input value={campaign.logo || ''} onChange={e => update({ logo: e.target.value })} placeholder="https://..." /></label><label>Upload de logo<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => update({ logo: data }, 'Logo atualizada.'))} /></label><label className="check"><input type="checkbox" checked={!!campaign.showTrackers} onChange={e => update({ showTrackers: e.target.checked })} /> Mostrar Tensão/Pressão aos players</label></div><label>Texto de abertura para players<textarea value={campaign.introPublic} onChange={e => update({ introPublic: e.target.value })} /></label><label>Briefing público<textarea value={campaign.briefingPublic} onChange={e => update({ briefingPublic: e.target.value })} /></label><label>Notas secretas do Mestre<textarea value={campaign.briefingPrivate} onChange={e => update({ briefingPrivate: e.target.value })} /></label><button className="ghost" onClick={refresh}>Atualizar do banco</button></Card>
     <Card title="Tensão e Pressão"><TrackerControl title="Tensão" tracker={campaign.tension} onChange={patch => setTracker('tension', patch)} /><TrackerControl title="Pressão" tracker={campaign.pressure} onChange={patch => setTracker('pressure', patch)} /><div className="sheet-actions"><button className="primary" onClick={tickTension}>Marcar +1 Tensão</button><button className="ghost" onClick={() => setTracker('tension', { value: 0 })}>Zerar Tensão</button><button className="ghost" onClick={() => setTracker('pressure', { value: 0 })}>Zerar Pressão</button></div><p className="muted">Quando Tensão enche, ela zera e aumenta Pressão. Quando Pressão enche, a situação sai do controle.</p></Card></div>
-    <Card title="Elenco da caçada"><div className="sheet-actions"><select value={actorType} onChange={e => setActorType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="enemy">Inimigo / Pecado</option><option value="player">Exorcista</option></select><button className="primary" onClick={addActor}>Adicionar</button></div><div className="grid two">{campaign.actors.map(a => <ActorEditor key={a.id} actor={a} update={actorUpdate} remove={deleteActor} />)}</div></Card>
+    <Card title="Elenco da caçada"><div className="sheet-actions"><select value={actorType} onChange={e => setActorType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="player">Exorcista</option><option value="enemy">Inimigo / Pecado</option><option value="boss">Boss</option></select><button className="primary" onClick={addActor}>Adicionar</button></div><div className="grid two">{campaign.actors.map(a => <ActorEditor key={a.id} actor={a} update={actorUpdate} remove={deleteActor} />)}</div></Card>
     <div className="grid two"><Card title="Registro da missão"><textarea value={logText} onChange={e => setLogText(e.target.value)} placeholder="Ex.: A equipe encontrou a testemunha no hospital..." /><div className="sheet-actions"><button className="primary" onClick={() => addLog(true)}>Adicionar público</button><button className="ghost" onClick={() => addLog(false)}>Adicionar secreto</button><button className="danger" onClick={() => update({ logs: [] }, 'Registros apagados.')}>Limpar</button></div><div className="log-list">{(campaign.logs || []).map(l => <div key={l.id} className={l.public ? 'log public' : 'log private'}><small>{l.at} — {l.public ? 'Público' : 'Secreto'}</small><p>{l.text}</p></div>)}</div></Card><Card title="Como usar na mesa"><ol className="steps"><li>Revele apenas NPCs e informações marcadas como públicas.</li><li>Use +Tensão quando a mesa gastar tempo, falhar com consequência ou gerar complicações.</li><li>Em conflito, aplique estresse em aliados/exorcistas; no terceiro ferimento, qualquer novo estresse mata.</li><li>Para Pecado/inimigo, marque cortes no Talismã de Execução; ao encher, ele cai, é executado ou muda de fase conforme sua preparação.</li></ol></Card></div>
   </div>
 }
@@ -390,14 +403,52 @@ function applyExecution(actor, amount) {
 }
 
 function ActorEditor({ actor, update, remove }) {
-  const isEnemy = actor.type === 'enemy'
+  const isEnemy = isHostileType(actor.type)
+  const typeClass = `actor-type-${actor.type || 'npc'}`
+  const typeDefaults = actorTypeDefaults(actor.type)
   const patch = p => update(actor.id, p)
+  const changeType = nextType => {
+    const defaults = actorTypeDefaults(nextType)
+    patch({
+      type: nextType,
+      visible: defaults.visible,
+      category: defaults.category,
+      executionMax: defaults.executionMax,
+      execution: isHostileType(nextType) ? Number(actor.execution || 0) : 0,
+      imageFit: actor.imageFit || 'contain'
+    })
+  }
   const stressAction = (amount, nonlethal = false) => patch(isEnemy ? applyExecution(actor, amount) : applyActorStress(actor, amount, nonlethal))
-  return <div className={`actor-editor ${actor.dead ? 'dead' : ''}`}><div className="actor-image">{actor.image ? <img src={actor.image} alt={actor.name} /> : <span>{isEnemy ? '☠' : '◇'}</span>}</div><div className="form-grid"><label>Nome<input value={actor.name} onChange={e => patch({ name: e.target.value })} /></label><label>Tipo<select value={actor.type} onChange={e => patch({ type: e.target.value })}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="enemy">Inimigo / Pecado</option><option value="player">Exorcista</option></select></label><label>Função / legenda<input value={actor.subtitle} onChange={e => patch({ subtitle: e.target.value })} /></label><label>Status<input value={actor.status} onChange={e => patch({ status: e.target.value })} /></label><label className="check"><input type="checkbox" checked={!!actor.visible} onChange={e => patch({ visible: e.target.checked })} /> Visível para players</label><label>Imagem URL<input value={actor.image || ''} onChange={e => patch({ image: e.target.value })} /></label><label>Upload de imagem<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => patch({ image: data }))} /></label></div><label>Info pública<textarea value={actor.publicInfo} onChange={e => patch({ publicInfo: e.target.value })} /></label><label>Notas secretas<textarea value={actor.privateInfo} onChange={e => patch({ privateInfo: e.target.value })} /></label>{isEnemy ? <div className="tracker-control"><label>Talismã de Execução máximo<input type="number" min="1" max="40" value={actor.executionMax} onChange={e => patch({ executionMax: clamp(e.target.value, 1, 40), execution: Math.min(actor.execution, clamp(e.target.value, 1, 40)) })} /></label><TrackerView title="Execução" tracker={{ value: actor.execution, max: actor.executionMax }} /><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 corte</button><button onClick={() => stressAction(2)}>+2 cortes</button><button onClick={() => stressAction(3)}>+3 cortes</button><button className="ghost" onClick={() => patch({ execution: 0, dead: false, status: 'Ativo' })}>Reset execução</button></div></div> : <div className="tracker-control"><div className="stat-grid"><div><span>Estresse</span><strong>{actor.stress}/{Math.max(1, Number(actor.maxStress || 6) - Number(actor.injuries || 0))}</strong></div><div><span>Ferimentos</span><strong>{actor.injuries}/3</strong></div></div><label>Estresse máximo base<input type="number" min="1" max="20" value={actor.maxStress} onChange={e => patch({ maxStress: clamp(e.target.value, 1, 20) })} /></label><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 stress</button><button onClick={() => stressAction(2)}>+2 stress</button><button onClick={() => stressAction(3)}>+3 stress</button><button onClick={() => stressAction(1, true)}>+1 não letal</button><button className="ghost" onClick={() => patch({ stress: 0, injuries: 0, dead: false, status: 'Ativo' })}>Curar/reset</button></div></div>}<div className="sheet-actions"><button className="danger" onClick={() => remove(actor.id)}>Remover</button><button className="ghost" onClick={() => patch({ dead: !actor.dead, status: actor.dead ? 'Ativo' : 'Morto' })}>{actor.dead ? 'Desmarcar morto' : 'Marcar morto'}</button></div></div>
+  return <div className={`actor-editor ${typeClass} ${isEnemy ? 'hostile' : ''} ${actor.dead ? 'dead' : ''}`}>
+    <div className="actor-image">{actor.image ? <img src={actor.image} alt={actor.name} style={{ objectFit: actor.imageFit || 'contain' }} /> : <span>{typeDefaults.icon}</span>}</div>
+    <div className="form-grid">
+      <label>Nome<input value={actor.name} onChange={e => patch({ name: e.target.value })} /></label>
+      <label>Tipo<select value={actor.type} onChange={e => changeType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="player">Exorcista</option><option value="enemy">Inimigo / Pecado</option><option value="boss">Boss</option></select></label>
+      <label>Função / legenda<input value={actor.subtitle} onChange={e => patch({ subtitle: e.target.value })} /></label>
+      <label>Status<input value={actor.status} onChange={e => patch({ status: e.target.value })} /></label>
+      <label className="check"><input type="checkbox" checked={!!actor.visible} onChange={e => patch({ visible: e.target.checked })} /> Visível para players</label>
+      <label>Imagem URL<input value={actor.image || ''} onChange={e => patch({ image: e.target.value })} /></label>
+      <label>Enquadramento da imagem<select value={actor.imageFit || 'contain'} onChange={e => patch({ imageFit: e.target.value })}><option value="contain">Mostrar inteira</option><option value="cover">Preencher box</option></select></label>
+      <label>Upload de imagem<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => patch({ image: data, imageFit: actor.imageFit || 'contain' }))} /></label>
+    </div>
+    <div className="actor-kind-row"><span className={`type-badge ${typeClass}`}>{actorTypeLabels[actor.type] || 'NPC'}</span><span className="muted">Use “Mostrar inteira” para retratos/corpo completo; use “Preencher box” para imagens horizontais.</span></div>
+    <label>Info pública<textarea value={actor.publicInfo} onChange={e => patch({ publicInfo: e.target.value })} /></label>
+    <label>Notas secretas<textarea value={actor.privateInfo} onChange={e => patch({ privateInfo: e.target.value })} /></label>
+    {isEnemy ? <div className="tracker-control"><label>Talismã de Execução máximo<input type="number" min="1" max="40" value={actor.executionMax} onChange={e => patch({ executionMax: clamp(e.target.value, 1, 40), execution: Math.min(actor.execution, clamp(e.target.value, 1, 40)) })} /></label><TrackerView title="Execução" tracker={{ value: actor.execution, max: actor.executionMax }} /><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 corte</button><button onClick={() => stressAction(2)}>+2 cortes</button><button onClick={() => stressAction(3)}>+3 cortes</button><button className="ghost" onClick={() => patch({ execution: 0, dead: false, status: 'Ativo' })}>Reset execução</button></div></div> : <div className="tracker-control"><div className="stat-grid"><div><span>Estresse</span><strong>{actor.stress}/{Math.max(1, Number(actor.maxStress || 6) - Number(actor.injuries || 0))}</strong></div><div><span>Ferimentos</span><strong>{actor.injuries}/3</strong></div></div><label>Estresse máximo base<input type="number" min="1" max="20" value={actor.maxStress} onChange={e => patch({ maxStress: clamp(e.target.value, 1, 20) })} /></label><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 stress</button><button onClick={() => stressAction(2)}>+2 stress</button><button onClick={() => stressAction(3)}>+3 stress</button><button onClick={() => stressAction(1, true)}>+1 não letal</button><button className="ghost" onClick={() => patch({ stress: 0, injuries: 0, dead: false, status: 'Ativo' })}>Curar/reset</button></div></div>}
+    <div className="sheet-actions"><button className="danger" onClick={() => remove(actor.id)}>Remover</button><button className="ghost" onClick={() => patch({ dead: !actor.dead, status: actor.dead ? 'Ativo' : 'Morto' })}>{actor.dead ? 'Desmarcar morto' : 'Marcar morto'}</button></div>
+  </div>
 }
 
 function ActorPublicCard({ actor }) {
-  return <div className={`public-actor ${actor.dead ? 'dead' : ''}`}>{actor.image ? <img src={actor.image} alt={actor.name} /> : <div className="public-placeholder">◇</div>}<h4>{actor.name}</h4><p className="eyebrow">{actor.subtitle || actor.type}</p><p>{actor.publicInfo || 'Sem informações públicas ainda.'}</p><span className="pill">{actor.status}</span></div>
+  const typeClass = `actor-type-${actor.type || 'npc'}`
+  const typeDefaults = actorTypeDefaults(actor.type)
+  return <div className={`public-actor ${typeClass} ${isHostileType(actor.type) ? 'hostile' : ''} ${actor.dead ? 'dead' : ''}`}>
+    {actor.image ? <img src={actor.image} alt={actor.name} style={{ objectFit: actor.imageFit || 'contain' }} /> : <div className="public-placeholder">{typeDefaults.icon}</div>}
+    <div className="actor-public-title"><h4>{actor.name}</h4><span className={`type-badge ${typeClass}`}>{actorTypeLabels[actor.type] || 'NPC'}</span></div>
+    <p className="eyebrow">{actor.subtitle || actorTypeLabels[actor.type] || actor.type}</p>
+    <p>{actor.publicInfo || 'Sem informações públicas ainda.'}</p>
+    <span className="pill">{actor.status}</span>
+  </div>
 }
 
 function HuntRulesReference() {

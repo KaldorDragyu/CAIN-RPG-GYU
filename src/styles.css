@@ -190,3 +190,68 @@ code { background: rgba(255,255,255,.08); padding: .1rem .35rem; border-radius: 
   display: block;
   margin-top: .15rem;
 }
+
+/* V17: enquadramento de imagens e cores por tipo de ator */
+.actor-editor, .public-actor {
+  position: relative;
+  overflow: hidden;
+}
+.actor-editor::before, .public-actor::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  opacity: .95;
+}
+.actor-type-npc { border-color: rgba(80, 170, 255, .65) !important; background: linear-gradient(180deg, rgba(80,170,255,.11), rgba(255,255,255,.025)) !important; }
+.actor-type-npc::before { background: #52b7ff; box-shadow: 0 0 18px rgba(82,183,255,.75); }
+.actor-type-player, .actor-type-ally { border-color: rgba(255, 214, 90, .68) !important; background: linear-gradient(180deg, rgba(255,214,90,.12), rgba(255,255,255,.025)) !important; }
+.actor-type-player::before, .actor-type-ally::before { background: #ffd65a; box-shadow: 0 0 18px rgba(255,214,90,.75); }
+.actor-type-enemy, .actor-type-boss { border-color: rgba(255, 68, 96, .75) !important; background: linear-gradient(180deg, rgba(255,68,96,.14), rgba(255,255,255,.025)) !important; }
+.actor-type-enemy::before, .actor-type-boss::before { background: #ff4460; box-shadow: 0 0 18px rgba(255,68,96,.8); }
+.actor-image {
+  min-height: 210px;
+  background: radial-gradient(circle, rgba(255,255,255,.06), rgba(0,0,0,.4));
+}
+.actor-image img {
+  height: 230px;
+  object-fit: contain;
+  object-position: center center;
+  background: rgba(0,0,0,.35);
+}
+.public-actor img, .public-placeholder {
+  height: 220px;
+  object-fit: contain;
+  object-position: center center;
+  background: rgba(0,0,0,.35);
+}
+.actor-kind-row, .actor-public-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.actor-kind-row .muted { font-size: .86rem; }
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: .28rem .65rem;
+  border: 1px solid var(--line);
+  font-size: .74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  background: rgba(255,255,255,.06) !important;
+}
+.type-badge.actor-type-npc { color: #9ed7ff; border-color: rgba(80,170,255,.55) !important; }
+.type-badge.actor-type-player, .type-badge.actor-type-ally { color: #ffeaa0; border-color: rgba(255,214,90,.58) !important; }
+.type-badge.actor-type-enemy, .type-badge.actor-type-boss { color: #ffb7c2; border-color: rgba(255,68,96,.62) !important; }
+.public-actor h4 { margin: 0; }
+.public-actor.hostile .pill { border-color: rgba(255,68,96,.62); color: #ffccd3; }
+.actor-editor.hostile .slashes.read-only span.marked { color: #fff; border-color: rgba(255,68,96,.75); background: rgba(255,68,96,.18); }
+@media (max-width: 640px) {
+  .actor-image img, .public-actor img, .public-placeholder { height: 260px; }
+}
