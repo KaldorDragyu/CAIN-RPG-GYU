@@ -98,7 +98,7 @@ function useAuth() {
     }
     const users = localUsers()
     const found = users[email.toLowerCase()]
-    if (!found || found.password !== password) { setMessage('Login local inválido. Crie uma conta local ou confira email/senha.'); return false }
+    if (!found || found.password !== password) { setMessage('Email ou senha inválidos.'); return false }
     const next = { id: found.id || key, email: found.email, name: found.name, role: found.role, mode: 'local' }
     setUser(next); localStorage.setItem('cain-auth-session', JSON.stringify(next)); return true
   }
@@ -110,7 +110,7 @@ function useAuth() {
       if (error) { setMessage(error.message); return false }
       if (data?.user) {
         await supabase.from('profiles').upsert({ id: data.user.id, email, display_name: name || email.split('@')[0], role: 'player' })
-        setMessage('Conta criada. Se ainda pedir confirmação de email, desligue Confirm Email no Supabase: Authentication > Providers > Email.')
+        setMessage('Conta criada. Você já pode tentar entrar com seu email e senha.')
       }
       return true
     }
@@ -118,19 +118,12 @@ function useAuth() {
     const key = email.toLowerCase()
     users[key] = { id: key, email, password, name: name || email.split('@')[0], role }
     saveLocalUsers(users)
-    setMessage(`Conta local criada: ${email} (${roleName(role)}).`)
+    setMessage('Conta criada. Você já pode entrar.')
     return true
   }
 
   function seedLocalUsers() {
-    const users = localUsers()
-    const seed = {
-      'mestre@cain.com': { id: 'mestre@cain.com', email: 'mestre@cain.com', password: 'mestre123', name: 'Administrador CAIN', role: 'master' },
-      'vergil@cain.com': { id: 'vergil@cain.com', email: 'vergil@cain.com', password: 'player123', name: 'Vergil', role: 'player' },
-      'dante@cain.com': { id: 'dante@cain.com', email: 'dante@cain.com', password: 'player123', name: 'Dante', role: 'player' }
-    }
-    saveLocalUsers({ ...users, ...seed })
-    setMessage('Contas locais de teste criadas: mestre@cain.com / mestre123; vergil@cain.com / player123; dante@cain.com / player123.')
+    setMessage('Criação de contas de demonstração desativada nesta versão.')
   }
 
   async function logout() {
@@ -194,15 +187,15 @@ function Restricted({ auth, setActive }) {
 
 function AuthPage({ auth, setActive }) {
   const [mode, setMode] = useState('login')
-  const [email, setEmail] = useState('mestre@cain.com')
-  const [password, setPassword] = useState('mestre123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [role, setRole] = useState('player')
   async function submit(e) {
     e.preventDefault()
     const ok = mode === 'login'
       ? await auth.login(email, password)
-      : await auth.register({ email, password, name, role: auth.supabaseReady ? 'player' : role })
+      : await auth.register({ email, password, name, role: 'player' })
     if (ok && mode === 'login') setActive('home')
   }
   return <section className="stack gap-lg">
@@ -211,18 +204,16 @@ function AuthPage({ auth, setActive }) {
       <Card title={mode === 'login' ? 'Entrar' : 'Criar conta'}>
         <form className="form-grid single" onSubmit={submit}>
           {mode === 'register' && <label>Nome / codinome<input value={name} onChange={e => setName(e.target.value)} placeholder="Vergil, Nero, etc." /></label>}
-          <label>Email do exorcista<input value={email} onChange={e => setEmail(e.target.value)} placeholder="vergil@cain.com" /></label>
+          <label>Email do exorcista<input value={email} onChange={e => setEmail(e.target.value)} placeholder="seu.codinome@cain.com" /></label>
           <label>Senha<input type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
-          {mode === 'register' && !auth.supabaseReady && <label>Tipo de conta<select value={role} onChange={e => setRole(e.target.value)}><option value="player">Player</option><option value="master">Mestre</option></select></label>}
           <div className="sheet-actions"><button className="primary" type="submit">{mode === 'login' ? 'Entrar' : 'Criar conta'}</button><button className="ghost" type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Criar conta de player' : 'Voltar ao login'}</button><button className="ghost" type="button" onClick={() => { auth.continueAsGuest(); setActive('rules') }}>Acessar como Guest</button></div>
         </form>
         {auth.message && <p className="warning">{auth.message}</p>}
       </Card>
-      <Card title="Status do sistema">
-        <div className="stat-grid"><div><span>Backend</span><strong>{auth.supabaseReady ? 'Supabase' : 'Local'}</strong></div><div><span>Perfil atual</span><strong>{roleName(auth.role)}</strong></div></div>
-        {auth.supabaseReady ? <p>Supabase está configurado. Players podem criar conta, mas o cargo de Mestre deve ser definido no banco, conforme o arquivo <code>SUPABASE_SETUP.md</code>.</p> : <p>Sem Supabase configurado, o site usa login local de teste no navegador. Isso serve para desenvolver e testar, mas não sincroniza entre computadores.</p>}
-        {!auth.supabaseReady && <button className="ghost" onClick={auth.seedLocalUsers}>Criar contas locais de teste</button>}
-        <div className="result-box"><strong>Contas locais de teste</strong><p>Mestre: <code>mestre@cain.com</code> / <code>mestre123</code></p><p>Player: <code>vergil@cain.com</code> / <code>player123</code></p></div>
+      <Card title="Acesso dos jogadores">
+        <div className="stat-grid"><div><span>Perfil atual</span><strong>{roleName(auth.role)}</strong></div><div><span>Modo</span><strong>{auth.role === 'guest' ? 'Visitante' : 'Operação ativa'}</strong></div></div>
+        <p>Entre com o email/codinome e senha combinados com o Mestre. Como Player, você acessa ficha, regras, Celular CAIN e informações públicas da missão.</p>
+        <p className="muted">Caso ainda não tenha conta, crie uma conta de Player e avise o Mestre para liberar as mensagens iniciais da operação.</p>
       </Card>
     </div>
   </section>
@@ -273,7 +264,7 @@ function useCampaign(auth) {
 
   useEffect(() => {
     if (auth.role === 'guest') return
-    // Fallback: mesmo se o Realtime do Supabase não estiver habilitado na tabela,
+    // Fallback de atualização automática.
     // players e mestre puxam a missão a cada poucos segundos.
     const interval = setInterval(() => refresh(true), auth.supabaseReady ? 3000 : 2500)
     if (!auth.supabaseReady || !supabase) return () => clearInterval(interval)
@@ -318,7 +309,7 @@ function useCampaign(auth) {
     setLastSync(new Date().toLocaleTimeString())
     if (auth.supabaseReady && supabase && canWrite) {
       const { error } = await supabase.from('campaign_state').upsert({ id: 'main', data: payload, updated_at: new Date().toISOString() })
-      setStatus(error ? `Erro ao salvar no Supabase: ${error.message}` : okMessage)
+      setStatus(error ? `Erro ao salvar: ${error.message}` : okMessage)
     } else setStatus(okMessage)
   }
   function update(updater, okMessage) {
@@ -483,11 +474,10 @@ function usePlayerHub(auth) {
   function writeLocal(data) { localStorage.setItem(HUB_LOCAL_KEY, JSON.stringify(data)) }
   function ensureLocal() {
     const data = readLocal()
-    data.profiles ||= [
-      { id: 'mestre@cain.com', email: 'mestre@cain.com', display_name: 'Administrador CAIN', role: 'master', character_name: 'Mestre', avatar_url: '', organization_title: 'CAIN // Célula GYU' },
-      { id: 'vergil@cain.com', email: 'vergil@cain.com', display_name: 'Vergil', role: 'player', character_name: 'Vergil', avatar_url: '', organization_title: 'CAIN // Célula GYU' },
-      { id: 'dante@cain.com', email: 'dante@cain.com', display_name: 'Dante', role: 'player', character_name: 'Dante', avatar_url: '', organization_title: 'CAIN // Célula GYU' }
-    ]
+    data.profiles ||= []
+    if (userId !== 'guest' && !data.profiles.some(p => p.id === userId)) {
+      data.profiles.push({ id: userId, email: auth.user?.email || '', display_name: auth.user?.name || 'Exorcista', role: auth.role || 'player', character_name: auth.user?.name || 'Exorcista', avatar_url: '', organization_title: 'CAIN' })
+    }
     data.inbox ||= {}
     data.notes ||= {}
     data.contacts ||= {}
@@ -545,7 +535,7 @@ function usePlayerHub(auth) {
   useEffect(() => {
     if (auth.role === 'guest') return
     // O polling é proposital: ele garante atualização automática mesmo se o Realtime
-    // ainda não tiver sido habilitado no Supabase ou cair temporariamente.
+    // caso a atualização instantânea caia temporariamente.
     const interval = setInterval(() => refresh(true), auth.supabaseReady ? 3500 : 2500)
     if (!auth.supabaseReady || !supabase) return () => clearInterval(interval)
 
@@ -663,7 +653,7 @@ function NotesPanel({ notes, saveNote, deleteNote }) {
 function FriendsPanel({ contacts, addContactByEmail, profiles, auth }) {
   const [email, setEmail] = useState('')
   const allPlayers = profiles.filter(p => p.role === 'player')
-  return <div className="grid two compact-grid"><Card title="Adicionar contato"><label>Email do exorcista<input value={email} onChange={e => setEmail(e.target.value)} placeholder="vergil@cain.com" /></label><button className="primary" onClick={() => { addContactByEmail(email); setEmail('') }}>Adicionar</button><p className="muted">No começo, cada player não tem contatos adicionados. O Mestre fica disponível pelo chat.</p></Card><Card title={auth.role === 'master' ? 'Players cadastrados' : 'Contatos'}>{auth.role === 'master' ? <List items={allPlayers.map(p => `${p.display_name || p.email} — ${p.email}`)} /> : contacts.length ? contacts.map(c => <div className="friend-card" key={c.id}><strong>{c.contact?.character_name || c.contact?.display_name}</strong><small>{c.contact?.email}</small></div>) : <p className="muted">Nenhum amigo adicionado ainda.</p>}</Card></div>
+  return <div className="grid two compact-grid"><Card title="Adicionar contato"><label>Email do exorcista<input value={email} onChange={e => setEmail(e.target.value)} placeholder="seu.codinome@cain.com" /></label><button className="primary" onClick={() => { addContactByEmail(email); setEmail('') }}>Adicionar</button><p className="muted">No começo, cada player não tem contatos adicionados. O Mestre fica disponível pelo chat.</p></Card><Card title={auth.role === 'master' ? 'Players cadastrados' : 'Contatos'}>{auth.role === 'master' ? <List items={allPlayers.map(p => `${p.display_name || p.email} — ${p.email}`)} /> : contacts.length ? contacts.map(c => <div className="friend-card" key={c.id}><strong>{c.contact?.character_name || c.contact?.display_name}</strong><small>{c.contact?.email}</small></div>) : <p className="muted">Nenhum amigo adicionado ainda.</p>}</Card></div>
 }
 function ChatPanel({ auth, hub }) {
   const myId = auth.user?.id || auth.user?.email
