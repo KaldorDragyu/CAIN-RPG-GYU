@@ -1,30 +1,25 @@
-# CAIN RPG — Operação Online
+# CAIN RPG — Portal da Célula
 
-Site de apoio para mesa de CAIN RPG em português.
+Site de apoio para jogadores da mesa de CAIN.
 
 ## Para jogadores
 
-Ao acessar o site, você pode:
+Acesse com sua conta de exorcista quando o Mestre liberar. Como Guest, você pode consultar as regras abertas. Como Player, você acessa ficha, Celular CAIN, caixa de entrada, anotações e a caçada ao vivo.
 
-- entrar como **Guest** para consultar regras abertas;
-- criar ou acessar sua conta de **Player**;
-- montar sua ficha de Exorcista;
-- acompanhar a aba **Caçada ao Vivo**;
-- usar o **Celular CAIN** com caixa de entrada, notas, contatos e chat;
-- consultar regras, agendas, blasfêmias, kit, armas e ferramentas de mesa.
+## Para rodar localmente
 
-## Como entrar
+```bash
+npm install
+npm run dev
+```
 
-Use o email/codinome e senha combinados com o Mestre.
+## Para publicar
 
-Se ainda não tiver conta, crie uma conta de Player na tela de login e avise o Mestre.
+Projeto Vite/React. Na Vercel, use:
 
-## Durante a missão
+- Build command: `npm run build`
+- Output directory: `dist`
 
-- A aba **Caçada ao Vivo** mostra apenas informações públicas liberadas pelo Mestre.
-- O **Celular CAIN** guarda mensagens, anotações e conversas do seu personagem.
-- Informações secretas, NPCs escondidos e controles de inimigos ficam restritos ao Mestre.
+## Observações
 
-## Observação
-
-Este site é uma ferramenta de apoio para a mesa. Para detalhes completos de regra, consulte o livro oficial comprado pelo grupo.
+A aba de Caçada possui uma missão base de one-shot. O Mestre pode alterar nomes, NPCs, briefing, imagens e registros. Campos de texto salvam ao sair do campo, para evitar perda de letras durante a digitação.

@@ -234,23 +234,73 @@ const newActor = (type = 'npc') => {
   const defaults = actorTypeDefaults(type)
   return { id: crypto.randomUUID(), type, name: defaults.name, subtitle: '', image: '', imageFit: 'contain', visible: defaults.visible, status: 'Ativo', publicInfo: '', privateInfo: '', category: defaults.category, stress: 0, maxStress: 6, injuries: 0, execution: 0, executionMax: defaults.executionMax, dead: false }
 }
-const defaultCampaign = () => ({
-  id: 'main',
-  version: 2,
-  orgName: 'CAIN // Célula GYU',
-  logo: '',
-  missionTitle: 'Operação Teste',
-  missionCode: 'DOCREF GYU-0001',
-  status: 'Briefing',
-  introPublic: 'Vocês foram convocados por CAIN. O alvo é um Pecado emergente. A área está instável. Eliminem a ameaça antes que a Mancha se espalhe.',
-  briefingPublic: 'Informações iniciais: tipo do Pecado, incidente que chamou atenção de CAIN e 2–3 pontos de interesse para investigar.',
-  briefingPrivate: 'Notas secretas do Mestre: traumas verdadeiros, poderes do Pecado, pistas falsas, destino dos NPCs e gatilhos de tensão.',
-  showTrackers: true,
-  tension: { name: 'Tensão', value: 0, max: 3 },
-  pressure: { name: 'Pressão', value: 0, max: 6 },
-  actors: [newActor('enemy')],
-  logs: []
-})
+const oneShotCampaign = () => {
+  const marco = newActor('npc')
+  Object.assign(marco, {
+    name: 'Marco Kirstein',
+    subtitle: 'Morador local / contato inicial',
+    visible: true,
+    status: 'Aguardando contato',
+    publicInfo: 'Marco solicitou discrição total. Ele afirma que pessoas conhecidas foram vistas em dois lugares ao mesmo tempo e que vozes familiares têm chamado moradores para fora depois do anoitecer.',
+    privateInfo: 'Marco sabe mais do que contou. Ele teme ser desacreditado e evita falar sobre o último desaparecimento perto da propriedade antiga.',
+    imageFit: 'contain'
+  })
+  const sheriff = newActor('npc')
+  Object.assign(sheriff, {
+    name: 'Agente Helena Duarte',
+    subtitle: 'Autoridade local',
+    visible: true,
+    status: 'Cooperativa, mas tensa',
+    publicInfo: 'Responsável por manter curiosos afastados. Entrega os registros de ocorrência se os exorcistas demonstrarem credenciais convincentes.',
+    privateInfo: 'Ela já viu algo usando a voz de um parente morto. Está escondendo o próprio medo.',
+    imageFit: 'contain'
+  })
+  const witness = newActor('npc')
+  Object.assign(witness, {
+    name: 'Testemunha não identificada',
+    subtitle: 'Paciente em observação',
+    visible: false,
+    status: 'Em choque',
+    publicInfo: 'Uma testemunha foi encontrada em estado catatônico perto da estrada velha.',
+    privateInfo: 'Quando pressionada, repete: “não era ele, mas usava a voz dele”.',
+    imageFit: 'contain'
+  })
+  const boss = newActor('boss')
+  Object.assign(boss, {
+    name: 'Anomalia de Campo',
+    subtitle: 'Alvo não classificado',
+    visible: false,
+    status: 'Não revelado',
+    category: 3,
+    executionMax: 10,
+    publicInfo: 'A existência do alvo ainda não foi confirmada para a equipe.',
+    privateInfo: 'Nunca diga o nome real do conceito para os jogadores. Use sinais: vozes imitadas, pegadas contraditórias, cheiro de animal molhado, reflexos errados e pessoas duplicadas. Antes de 2 pistas-chave, ataques contra ele são Hard. A execução só deve ser possível no local contaminado.',
+    imageFit: 'contain'
+  })
+  return {
+    id: 'main',
+    version: 4,
+    orgName: 'CAIN // Célula GYU',
+    logo: '',
+    missionTitle: 'Operação Vozes na Linha',
+    missionCode: 'DOCREF GYU-0107',
+    status: 'Briefing',
+    introPublic: 'A célula foi convocada para uma ocorrência rural de baixa exposição pública. O caso envolve desaparecimentos, relatos contraditórios e registros impossíveis de presença simultânea.',
+    briefingPublic: 'Ponto de encontro: posto desativado na estrada velha, 21h40. Contato inicial: Marco Kirstein. Objetivos iniciais: confirmar a anomalia, proteger civis, coletar evidências e localizar o centro da contaminação. Não confiem apenas em vozes, chamadas ou aparências familiares.',
+    briefingPrivate: 'Estrutura para o Mestre: mantenha o alvo como enigma. Use Marco como gancho inicial, Helena como autoridade tensa e a testemunha como pista opcional. Pistas-chave sugeridas: 1) pessoa vista em dois lugares; 2) voz de alguém ausente chamando do escuro; 3) pegadas humanas que mudam de padrão; 4) câmera/áudio com atraso impossível. Com 2 pistas, a equipe entende como se proteger; com 3, a execução fica viável.',
+    showTrackers: true,
+    tension: { name: 'Tensão', value: 0, max: 3 },
+    pressure: { name: 'Pressão', value: 0, max: 6 },
+    actors: [marco, sheriff, witness, boss],
+    logs: [
+      { id: crypto.randomUUID(), public: true, at: new Date().toLocaleString(), text: 'CAIN confirmou ruído psíquico instável na região. A equipe deve evitar exposição civil.' },
+      { id: crypto.randomUUID(), public: true, at: new Date().toLocaleString(), text: 'O contato Marco Kirstein aguardará a equipe no posto desativado da estrada velha.' },
+      { id: crypto.randomUUID(), public: false, at: new Date().toLocaleString(), text: 'Não revele a natureza do alvo. Construa o horror por contradições, imitação e pistas físicas.' }
+    ]
+  }
+}
+
+const defaultCampaign = () => oneShotCampaign()
 
 function useCampaign(auth) {
   const [campaign, setCampaign] = useState(() => { try { return { ...defaultCampaign(), ...(JSON.parse(localStorage.getItem(CAMPAIGN_KEY)) || {}) } } catch { return defaultCampaign() } })
@@ -264,9 +314,13 @@ function useCampaign(auth) {
 
   useEffect(() => {
     if (auth.role === 'guest') return
-    // Fallback de atualização automática.
-    // players e mestre puxam a missão a cada poucos segundos.
-    const interval = setInterval(() => refresh(true), auth.supabaseReady ? 3000 : 2500)
+    // Players recebem atualização automática.
+    // Mestre não recebe refresh automático enquanto edita, para não apagar letras durante a digitação.
+    if (auth.role === 'master') {
+      setRealtimeStatus('edição manual do Mestre')
+      return
+    }
+    const interval = setInterval(() => refresh(true), auth.supabaseReady ? 5000 : 4000)
     if (!auth.supabaseReady || !supabase) return () => clearInterval(interval)
 
     const onChange = () => refresh(true)
@@ -328,6 +382,29 @@ function readImageFile(file, cb) {
   reader.readAsDataURL(file)
 }
 
+function CommitInput({ value = '', onCommit, type = 'text', placeholder = '', min, max, className = '' }) {
+  const [draft, setDraft] = useState(value ?? '')
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setDraft(value ?? '') }, [value, focused])
+  const commit = () => {
+    setFocused(false)
+    if (String(draft ?? '') !== String(value ?? '')) onCommit?.(draft)
+  }
+  return <input className={className} type={type} min={min} max={max} value={draft} placeholder={placeholder} onFocus={() => setFocused(true)} onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter' && type !== 'textarea') e.currentTarget.blur() }} />
+}
+
+function CommitTextarea({ value = '', onCommit, placeholder = '' }) {
+  const [draft, setDraft] = useState(value ?? '')
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setDraft(value ?? '') }, [value, focused])
+  const commit = () => {
+    setFocused(false)
+    if (String(draft ?? '') !== String(value ?? '')) onCommit?.(draft)
+  }
+  return <textarea value={draft} placeholder={placeholder} onFocus={() => setFocused(true)} onChange={e => setDraft(e.target.value)} onBlur={commit} />
+}
+
+
 function LiveHuntPage({ auth }) {
   const store = useCampaign(auth)
   if (auth.role === 'guest') return <section className="stack gap-lg"><SectionTitle eyebrow="Caçada" title="Acesso de missão bloqueado">Entre como Player ou Mestre para ver o início da missão, NPCs revelados e painel de sessão.</SectionTitle><HuntRulesReference /></section>
@@ -355,8 +432,8 @@ function MasterHuntPanel({ store }) {
   const setTracker = (which, patch) => update(c => ({ ...c, [which]: { ...c[which], ...patch } }), 'Talismã atualizado.')
   return <div className="stack gap-lg">
     <HuntHeader campaign={campaign} />
-    <div className="sync-strip"><span className="live-dot" /> <strong>Sincronização automática:</strong> {realtimeStatus || 'ativa'} {lastSync && <small>Última atualização: {lastSync}</small>} <button className="ghost mini-button" onClick={() => refresh(false)}>Atualizar agora</button></div>
-    <div className="grid two"><Card title="Configuração da missão"><div className="form-grid"><label>Organização<input value={campaign.orgName} onChange={e => update({ orgName: e.target.value })} /></label><label>Código<input value={campaign.missionCode} onChange={e => update({ missionCode: e.target.value })} /></label><label>Título da missão<input value={campaign.missionTitle} onChange={e => update({ missionTitle: e.target.value })} /></label><label>Status<select value={campaign.status} onChange={e => update({ status: e.target.value })}><option>Briefing</option><option>Investigação</option><option>Preparação</option><option>Conflito</option><option>Execução</option><option>Exfiltração</option><option>Encerrada</option></select></label><label>Logo por URL<input value={campaign.logo || ''} onChange={e => update({ logo: e.target.value })} placeholder="https://..." /></label><label>Upload de logo<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => update({ logo: data }, 'Logo atualizada.'))} /></label><label className="check"><input type="checkbox" checked={!!campaign.showTrackers} onChange={e => update({ showTrackers: e.target.checked })} /> Mostrar Tensão/Pressão aos players</label></div><label>Texto de abertura para players<textarea value={campaign.introPublic} onChange={e => update({ introPublic: e.target.value })} /></label><label>Briefing público<textarea value={campaign.briefingPublic} onChange={e => update({ briefingPublic: e.target.value })} /></label><label>Notas secretas do Mestre<textarea value={campaign.briefingPrivate} onChange={e => update({ briefingPrivate: e.target.value })} /></label><button className="ghost" onClick={refresh}>Atualizar do banco</button></Card>
+    <div className="sync-strip"><span className="live-dot" /> <strong>{store.canWrite ? 'Sincronização:' : 'Sincronização automática:'}</strong> {realtimeStatus || 'ativa'} {lastSync && <small>Última atualização: {lastSync}</small>} <button className="ghost mini-button" onClick={() => refresh(false)}>Atualizar agora</button></div>
+    <div className="grid two"><Card title="Configuração da missão"><div className="form-grid"><label>Organização<CommitInput value={campaign.orgName} onCommit={v => update({ orgName: v }, 'Organização salva.')} /></label><label>Código<CommitInput value={campaign.missionCode} onCommit={v => update({ missionCode: v }, 'Código salvo.')} /></label><label>Título da missão<CommitInput value={campaign.missionTitle} onCommit={v => update({ missionTitle: v }, 'Título salvo.')} /></label><label>Status<select value={campaign.status} onChange={e => update({ status: e.target.value })}><option>Briefing</option><option>Investigação</option><option>Preparação</option><option>Conflito</option><option>Execução</option><option>Exfiltração</option><option>Encerrada</option></select></label><label>Logo por URL<CommitInput value={campaign.logo || ''} onCommit={v => update({ logo: v }, 'Logo salva.')} placeholder="https://..." /></label><label>Upload de logo<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => update({ logo: data }, 'Logo atualizada.'))} /></label><label className="check"><input type="checkbox" checked={!!campaign.showTrackers} onChange={e => update({ showTrackers: e.target.checked })} /> Mostrar Tensão/Pressão aos players</label></div><label>Texto de abertura para players<CommitTextarea value={campaign.introPublic} onCommit={v => update({ introPublic: v }, 'Abertura salva.')} /></label><label>Briefing público<CommitTextarea value={campaign.briefingPublic} onCommit={v => update({ briefingPublic: v }, 'Briefing salvo.')} /></label><label>Notas secretas do Mestre<CommitTextarea value={campaign.briefingPrivate} onCommit={v => update({ briefingPrivate: v }, 'Notas secretas salvas.')} /></label><div className="sheet-actions"><button className="ghost" onClick={refresh}>Atualizar do banco</button><button className="primary" onClick={() => update(oneShotCampaign(), 'Missão base carregada.')}>Carregar missão base</button></div><p className="muted">Campos de texto salvam ao sair do campo. Imagens e botões salvam na hora.</p></Card>
     <Card title="Tensão e Pressão"><TrackerControl title="Tensão" tracker={campaign.tension} onChange={patch => setTracker('tension', patch)} /><TrackerControl title="Pressão" tracker={campaign.pressure} onChange={patch => setTracker('pressure', patch)} /><div className="sheet-actions"><button className="primary" onClick={tickTension}>Marcar +1 Tensão</button><button className="ghost" onClick={() => setTracker('tension', { value: 0 })}>Zerar Tensão</button><button className="ghost" onClick={() => setTracker('pressure', { value: 0 })}>Zerar Pressão</button></div><p className="muted">Quando Tensão enche, ela zera e aumenta Pressão. Quando Pressão enche, a situação sai do controle.</p></Card></div>
     <Card title="Elenco da caçada"><div className="sheet-actions"><select value={actorType} onChange={e => setActorType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="player">Exorcista</option><option value="enemy">Inimigo / Pecado</option><option value="boss">Boss</option></select><button className="primary" onClick={addActor}>Adicionar</button></div><div className="grid two">{campaign.actors.map(a => <ActorEditor key={a.id} actor={a} update={actorUpdate} remove={deleteActor} />)}</div></Card>
     <div className="grid two"><Card title="Registro da missão"><textarea value={logText} onChange={e => setLogText(e.target.value)} placeholder="Ex.: A equipe encontrou a testemunha no hospital..." /><div className="sheet-actions"><button className="primary" onClick={() => addLog(true)}>Adicionar público</button><button className="ghost" onClick={() => addLog(false)}>Adicionar secreto</button><button className="danger" onClick={() => update({ logs: [] }, 'Registros apagados.')}>Limpar</button></div><div className="log-list">{(campaign.logs || []).map(l => <div key={l.id} className={l.public ? 'log public' : 'log private'}><small>{l.at} — {l.public ? 'Público' : 'Secreto'}</small><p>{l.text}</p></div>)}</div></Card><Card title="Como usar na mesa"><ol className="steps"><li>Revele apenas NPCs e informações marcadas como públicas.</li><li>Use +Tensão quando a mesa gastar tempo, falhar com consequência ou gerar complicações.</li><li>Em conflito, aplique estresse em aliados/exorcistas; no terceiro ferimento, qualquer novo estresse mata.</li><li>Para Pecado/inimigo, marque cortes no Talismã de Execução; ao encher, ele cai, é executado ou muda de fase conforme sua preparação.</li></ol></Card></div>
@@ -413,18 +490,18 @@ function ActorEditor({ actor, update, remove }) {
   return <div className={`actor-editor ${typeClass} ${isEnemy ? 'hostile' : ''} ${actor.dead ? 'dead' : ''}`}>
     <div className="actor-image">{actor.image ? <img src={actor.image} alt={actor.name} style={{ objectFit: actor.imageFit || 'contain' }} /> : <span>{typeDefaults.icon}</span>}</div>
     <div className="form-grid">
-      <label>Nome<input value={actor.name} onChange={e => patch({ name: e.target.value })} /></label>
+      <label>Nome<CommitInput value={actor.name} onCommit={v => patch({ name: v })} /></label>
       <label>Tipo<select value={actor.type} onChange={e => changeType(e.target.value)}><option value="npc">NPC</option><option value="ally">Aliado</option><option value="player">Exorcista</option><option value="enemy">Inimigo / Pecado</option><option value="boss">Boss</option></select></label>
-      <label>Função / legenda<input value={actor.subtitle} onChange={e => patch({ subtitle: e.target.value })} /></label>
-      <label>Status<input value={actor.status} onChange={e => patch({ status: e.target.value })} /></label>
+      <label>Função / legenda<CommitInput value={actor.subtitle} onCommit={v => patch({ subtitle: v })} /></label>
+      <label>Status<CommitInput value={actor.status} onCommit={v => patch({ status: v })} /></label>
       <label className="check"><input type="checkbox" checked={!!actor.visible} onChange={e => patch({ visible: e.target.checked })} /> Visível para players</label>
-      <label>Imagem URL<input value={actor.image || ''} onChange={e => patch({ image: e.target.value })} /></label>
+      <label>Imagem URL<CommitInput value={actor.image || ''} onCommit={v => patch({ image: v })} /></label>
       <label>Enquadramento da imagem<select value={actor.imageFit || 'contain'} onChange={e => patch({ imageFit: e.target.value })}><option value="contain">Mostrar inteira</option><option value="cover">Preencher box</option></select></label>
       <label>Upload de imagem<input type="file" accept="image/*" onChange={e => readImageFile(e.target.files?.[0], data => patch({ image: data, imageFit: actor.imageFit || 'contain' }))} /></label>
     </div>
     <div className="actor-kind-row"><span className={`type-badge ${typeClass}`}>{actorTypeLabels[actor.type] || 'NPC'}</span><span className="muted">Use “Mostrar inteira” para retratos/corpo completo; use “Preencher box” para imagens horizontais.</span></div>
-    <label>Info pública<textarea value={actor.publicInfo} onChange={e => patch({ publicInfo: e.target.value })} /></label>
-    <label>Notas secretas<textarea value={actor.privateInfo} onChange={e => patch({ privateInfo: e.target.value })} /></label>
+    <label>Info pública<CommitTextarea value={actor.publicInfo} onCommit={v => patch({ publicInfo: v })} /></label>
+    <label>Notas secretas<CommitTextarea value={actor.privateInfo} onCommit={v => patch({ privateInfo: v })} /></label>
     {isEnemy ? <div className="tracker-control"><label>Talismã de Execução máximo<input type="number" min="1" max="40" value={actor.executionMax} onChange={e => patch({ executionMax: clamp(e.target.value, 1, 40), execution: Math.min(actor.execution, clamp(e.target.value, 1, 40)) })} /></label><TrackerView title="Execução" tracker={{ value: actor.execution, max: actor.executionMax }} /><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 corte</button><button onClick={() => stressAction(2)}>+2 cortes</button><button onClick={() => stressAction(3)}>+3 cortes</button><button className="ghost" onClick={() => patch({ execution: 0, dead: false, status: 'Ativo' })}>Reset execução</button></div></div> : <div className="tracker-control"><div className="stat-grid"><div><span>Estresse</span><strong>{actor.stress}/{Math.max(1, Number(actor.maxStress || 6) - Number(actor.injuries || 0))}</strong></div><div><span>Ferimentos</span><strong>{actor.injuries}/3</strong></div></div><label>Estresse máximo base<input type="number" min="1" max="20" value={actor.maxStress} onChange={e => patch({ maxStress: clamp(e.target.value, 1, 20) })} /></label><div className="sheet-actions"><button onClick={() => stressAction(1)}>+1 stress</button><button onClick={() => stressAction(2)}>+2 stress</button><button onClick={() => stressAction(3)}>+3 stress</button><button onClick={() => stressAction(1, true)}>+1 não letal</button><button className="ghost" onClick={() => patch({ stress: 0, injuries: 0, dead: false, status: 'Ativo' })}>Curar/reset</button></div></div>}
     <div className="sheet-actions"><button className="danger" onClick={() => remove(actor.id)}>Remover</button><button className="ghost" onClick={() => patch({ dead: !actor.dead, status: actor.dead ? 'Ativo' : 'Morto' })}>{actor.dead ? 'Desmarcar morto' : 'Marcar morto'}</button></div>
   </div>
@@ -447,11 +524,14 @@ function HuntRulesReference() {
 }
 
 const HUB_LOCAL_KEY = 'cain-player-hub-v1'
+const OLD_SYSTEM_MAIL_SUBJECTS = ['DOCREF // CHAMADO INICIAL']
+const MISSION_MAIL_SUBJECT = 'DOCREF GYU-0107 // OPERAÇÃO VOZES NA LINHA'
+const visibleInbox = rows => (rows || []).filter(m => !OLD_SYSTEM_MAIL_SUBJECTS.includes(m.subject))
 const defaultMissionMail = (name = 'Exorcista') => ({
   id: crypto.randomUUID(),
-  subject: 'DOCREF // CHAMADO INICIAL',
+  subject: MISSION_MAIL_SUBJECT,
   from_name: 'CAIN // CENTRAL',
-  body: `Agente ${name},\n\nVocê foi anexado a uma célula de resposta rápida. O ponto de encontro será informado pelo Administrador da operação. Leve kit padrão, mantenha burst reservado e não compartilhe detalhes com civis.\n\nAté que a Mancha seja apagada.`,
+  body: `Agente ${name},\n\nVocê foi anexado à Operação Vozes na Linha. Ponto de encontro: posto desativado da estrada velha, 21h40. Contato inicial: Marco Kirstein.\n\nDiretrizes: mantenha discrição, registre inconsistências de áudio/imagem e não responda a chamados fora do protocolo da célula. Vozes familiares, duplicações e relatos contraditórios devem ser tratados como risco ativo.\n\nAté que a Mancha seja apagada.`,
   is_read: false,
   created_at: new Date().toISOString()
 })
@@ -482,7 +562,10 @@ function usePlayerHub(auth) {
     data.notes ||= {}
     data.contacts ||= {}
     data.messages ||= []
-    if (userId !== 'guest' && !data.inbox[userId]) data.inbox[userId] = [defaultMissionMail(auth.user?.name || auth.user?.email?.split('@')[0])]
+    if (userId !== 'guest') {
+      data.inbox[userId] = visibleInbox(data.inbox[userId] || [])
+      if (!data.inbox[userId].some(m => m.subject === MISSION_MAIL_SUBJECT)) data.inbox[userId] = [defaultMissionMail(auth.user?.name || auth.user?.email?.split('@')[0]), ...data.inbox[userId]]
+    }
     if (userId !== 'guest' && !data.notes[userId]) data.notes[userId] = [{ id: crypto.randomUUID(), title: 'Anotações da missão', body: '', updated_at: new Date().toISOString() }]
     if (userId !== 'guest' && !data.contacts[userId]) data.contacts[userId] = []
     writeLocal(data)
@@ -491,8 +574,8 @@ function usePlayerHub(auth) {
 
   async function ensureDefaultInboxOnline() {
     if (!auth.supabaseReady || !supabase || auth.role === 'guest') return
-    const { data } = await supabase.from('inbox_messages').select('id').eq('user_id', userId).limit(1)
-    if (!data?.length) await supabase.from('inbox_messages').insert({ user_id: userId, from_name: 'CAIN // CENTRAL', subject: 'DOCREF // CHAMADO INICIAL', body: defaultMissionMail(auth.user?.name).body })
+    const { data } = await supabase.from('inbox_messages').select('id').eq('user_id', userId).eq('subject', MISSION_MAIL_SUBJECT).limit(1)
+    if (!data?.length) await supabase.from('inbox_messages').insert({ user_id: userId, from_name: 'CAIN // CENTRAL', subject: MISSION_MAIL_SUBJECT, body: defaultMissionMail(auth.user?.name).body })
   }
 
   async function refresh(silent = false) {
@@ -511,14 +594,14 @@ function usePlayerHub(auth) {
         ])
         if (p.error || i.error || n.error || c.error || m.error) setStatus([p.error, i.error, n.error, c.error, m.error].filter(Boolean).map(e => e.message).join(' | '))
         setProfiles(p.data || [])
-        setInbox(i.data || [])
+        setInbox(visibleInbox(i.data || []))
         setNotes(n.data || [])
         setContacts(c.data || [])
         setMessages(m.data || [])
       } else {
         const data = ensureLocal()
         setProfiles(data.profiles)
-        setInbox(data.inbox[userId] || [])
+        setInbox(visibleInbox(data.inbox[userId] || []))
         setNotes(data.notes[userId] || [])
         setContacts((data.contacts[userId] || []).map(id => ({ id: `${userId}-${id}`, owner_id: userId, contact_id: id, contact: data.profiles.find(p => p.id === id) })).filter(x => x.contact))
         setMessages((data.messages || []).filter(x => x.sender_id === userId || x.receiver_id === userId || auth.role === 'master'))
