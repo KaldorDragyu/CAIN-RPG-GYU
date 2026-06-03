@@ -33,6 +33,118 @@ const getNavForRole = role => {
 }
 const roleName = role => role === 'master' ? 'Mestre' : role === 'player' ? 'Player' : 'Guest'
 
+const personIcon = '☻'
+const phoneTabLabels = { inbox: 'Caixa de entrada', notes: 'Bloco de notas', friends: 'Contatos', chat: 'Chat interno', profile: 'Perfil do agente', master: 'Console do Mestre' }
+function openPhoneTab(setActive, tab = 'inbox') {
+  localStorage.setItem('cain-phone-open-tab', tab)
+  setActive('profile')
+}
+function useMiniProfile(auth) {
+  const [profile, setProfile] = useState(null)
+  const [unread, setUnread] = useState(0)
+  const userId = auth.user?.id || auth.user?.email
+  async function refresh() {
+    if (!userId || auth.role === 'guest') return
+    if (auth.supabaseReady && supabase) {
+      const [{ data: prof }, { data: inbox }] = await Promise.all([
+        supabase.from('profiles').select('id,email,display_name,role,avatar_url,character_name,organization_title').eq('id', userId).maybeSingle(),
+        supabase.from('inbox_messages').select('id,is_read').eq('user_id', userId).eq('is_read', false)
+      ])
+      setProfile(prof || null)
+      setUnread((inbox || []).length)
+    } else {
+      try {
+        const data = JSON.parse(localStorage.getItem(HUB_LOCAL_KEY)) || {}
+        setProfile((data.profiles || []).find(p => p.id === userId) || null)
+        setUnread(((data.inbox || {})[userId] || []).filter(m => !m.is_read).length)
+      } catch { setProfile(null); setUnread(0) }
+    }
+  }
+  useEffect(() => {
+    refresh()
+    if (!userId || auth.role === 'guest') return
+    const t = setInterval(refresh, 5000)
+    return () => clearInterval(t)
+  }, [userId, auth.role, auth.supabaseReady])
+  return { profile, unread, refresh }
+}
+function ProfileMenu({ auth, setActive }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef(null)
+  const mini = useMiniProfile(auth)
+  const profile = mini.profile || {}
+  const label = profile.character_name || profile.display_name || auth.user?.name || 'Agente'
+  useEffect(() => {
+    const close = e => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [])
+  if (auth.role === 'guest') return <div className="top-actions"><button className="ghost" onClick={() => setActive('login')}>Entrar</button></div>
+  const jump = tab => { setOpen(false); openPhoneTab(setActive, tab) }
+  return <div className="profile-menu" ref={menuRef}>
+    <button className="profile-trigger" onClick={() => setOpen(!open)} title="Abrir Celular CAIN">
+      <span className="profile-avatar-small">{profile.avatar_url ? <img src={profile.avatar_url} alt={label} /> : <span className="person-icon">{personIcon}</span>}</span>
+      <span className="profile-trigger-text"><strong>{label}</strong><small>{auth.role === 'master' ? 'Mestre' : 'Agente'}</small></span>
+      {mini.unread > 0 && <span className="unread-dot">{mini.unread}</span>}
+      <span className="hamburger-lines"><i></i><i></i><i></i></span>
+    </button>
+    {open && <div className="phone-dropdown">
+      <div className="phone-dropdown-head">
+        <div className="profile-avatar-large">{profile.avatar_url ? <img src={profile.avatar_url} alt={label} /> : <span className="person-icon">{personIcon}</span>}</div>
+        <div><p className="eyebrow">{profile.organization_title || 'CAIN // Célula GYU'}</p><h3>{label}</h3><small>{auth.user?.email}</small></div>
+      </div>
+      <div className="phone-menu-grid">
+        <button onClick={() => jump('inbox')}>▣ <span>Caixa</span>{mini.unread > 0 && <b>{mini.unread}</b>}</button>
+        <button onClick={() => jump('notes')}>✎ <span>Notas</span></button>
+        <button onClick={() => jump('friends')}>◇ <span>Contatos</span></button>
+        <button onClick={() => jump('chat')}>◌ <span>Chat</span></button>
+        <button onClick={() => jump('profile')}>☻ <span>Perfil</span></button>
+        <button onClick={() => { setOpen(false); setActive('sheet') }}>▰ <span>Ficha</span></button>
+        {auth.role === 'master' && <button onClick={() => jump('master')}>⌁ <span>Mestre</span></button>}
+      </div>
+      <div className="phone-dropdown-actions"><button className="danger" onClick={() => { setOpen(false); auth.logout() }}>Sair da operação</button></div>
+    </div>}
+  </div>
+}
+function useUnreadNotice(auth) {
+  const [notice, setNotice] = useState(null)
+  const userId = auth.user?.id || auth.user?.email
+  async function check() {
+    if (!userId || auth.role !== 'player') return
+    let newest = null
+    if (auth.supabaseReady && supabase) {
+      const { data } = await supabase.from('inbox_messages').select('*').eq('user_id', userId).eq('is_read', false).order('created_at', { ascending: false }).limit(1)
+      newest = data?.[0]
+    } else {
+      try {
+        const d = JSON.parse(localStorage.getItem(HUB_LOCAL_KEY)) || {}
+        newest = ((d.inbox || {})[userId] || []).filter(m => !m.is_read).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0]
+      } catch {}
+    }
+    if (newest) {
+      const seenKey = `cain-last-notice-${userId}`
+      if (localStorage.getItem(seenKey) !== newest.id) setNotice(newest)
+    }
+  }
+  useEffect(() => {
+    check()
+    if (!userId || auth.role !== 'player') return
+    const t = setInterval(check, auth.supabaseReady ? 3500 : 3000)
+    return () => clearInterval(t)
+  }, [userId, auth.role, auth.supabaseReady])
+  const dismiss = () => { if (notice && userId) localStorage.setItem(`cain-last-notice-${userId}`, notice.id); setNotice(null) }
+  return { notice, dismiss }
+}
+function InboxToast({ auth, setActive }) {
+  const { notice, dismiss } = useUnreadNotice(auth)
+  if (!notice) return null
+  return <div className="inbox-toast">
+    <div><p className="eyebrow">Nova ordem recebida</p><h3>{notice.subject}</h3><p>{notice.from_name || 'CAIN'} enviou uma atualização para sua caixa de entrada.</p></div>
+    <div className="sheet-actions"><button className="primary" onClick={() => { dismiss(); openPhoneTab(setActive, 'inbox') }}>Abrir caixa</button><button className="ghost" onClick={dismiss}>Depois</button></div>
+  </div>
+}
+
+
 function useAuth() {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('cain-auth-session')) || { role: 'guest', mode: 'guest' } }
@@ -173,7 +285,8 @@ function App() {
       <div className="sidebar-note session-note"><strong>{roleName(auth.role)}</strong><span>{auth.user?.email || 'Acesso sem login'}</span>{auth.role !== 'guest' ? <button className="ghost" onClick={auth.logout}>Sair</button> : <button className="ghost" onClick={() => setActive('login')}>Entrar</button>}</div>
     </aside>
     <main>
-      <header className="topbar"><div><p className="eyebrow">Aba atual</p><h2>{activeLabel}</h2></div><div className="top-actions"><span className="pill">{roleName(auth.role)}</span>{auth.role !== 'guest' && <button className="ghost" onClick={() => setActive('profile')}>Celular CAIN</button>}{auth.role !== 'guest' && <button className="ghost" onClick={() => setActive('sheet')}>Abrir ficha</button>}</div></header>
+      <header className="topbar"><div><p className="eyebrow">Aba atual</p><h2>{activeLabel}</h2></div><ProfileMenu auth={auth} setActive={setActive} /></header>
+      <InboxToast auth={auth} setActive={setActive} />
       {auth.loading ? <section className="stack gap-lg"><Card title="Carregando autenticação"><p>Conectando...</p></Card></section> : page}
       <footer><p>{legalNotice}</p></footer>
     </main>
@@ -691,17 +804,64 @@ function usePlayerHub(auth) {
   async function sendInbox(user_id, subject, body) {
     if (auth.role !== 'master') return setStatus('Apenas Mestre pode enviar mensagens de caixa de entrada.')
     if (!user_id || !subject.trim() || !body.trim()) return setStatus('Escolha um player e preencha assunto/corpo.')
-    if (auth.supabaseReady && supabase) await supabase.from('inbox_messages').insert({ user_id, from_name: auth.user?.name || 'Mestre', subject, body })
-    else { const d = ensureLocal(); d.inbox[user_id] ||= []; d.inbox[user_id].unshift({ id: crypto.randomUUID(), from_name: auth.user?.name || 'Mestre', subject, body, is_read: false, created_at: new Date().toISOString() }); writeLocal(d) }
-    setStatus('Mensagem enviada para a caixa de entrada.'); refresh(false)
+    if (auth.supabaseReady && supabase) {
+      const { error } = await supabase.from('inbox_messages').insert({ user_id, from_name: auth.user?.name || 'CAIN // MESTRE', subject, body })
+      if (error) setStatus(error.message)
+      else setStatus('Mensagem enviada para a caixa de entrada.')
+    }
+    else { const d = ensureLocal(); d.inbox[user_id] ||= []; d.inbox[user_id].unshift({ id: crypto.randomUUID(), user_id, from_name: auth.user?.name || 'CAIN // MESTRE', subject, body, is_read: false, created_at: new Date().toISOString() }); writeLocal(d); setStatus('Mensagem enviada para a caixa de entrada.') }
+    refresh(false)
+  }
+  async function sendInboxToAll(subject, body) {
+    if (auth.role !== 'master') return setStatus('Apenas Mestre pode emitir ordens de missão.')
+    if (!subject.trim() || !body.trim()) return setStatus('Preencha título e texto da ordem.')
+    const playerRows = profiles.filter(p => p.role === 'player')
+    if (!playerRows.length) return setStatus('Nenhum player cadastrado para receber a ordem.')
+    if (auth.supabaseReady && supabase) {
+      const payload = playerRows.map(p => ({ user_id: p.id, from_name: 'CAIN // ORDEM DE SERVIÇO', subject, body }))
+      const { error } = await supabase.from('inbox_messages').insert(payload)
+      setStatus(error ? error.message : `Ordem enviada para ${playerRows.length} player(s).`)
+    } else {
+      const d = ensureLocal()
+      playerRows.forEach(p => { d.inbox[p.id] ||= []; d.inbox[p.id].unshift({ id: crypto.randomUUID(), user_id: p.id, from_name: 'CAIN // ORDEM DE SERVIÇO', subject, body, is_read: false, created_at: new Date().toISOString() }) })
+      writeLocal(d); setStatus(`Ordem local enviada para ${playerRows.length} player(s).`)
+    }
+    refresh(false)
+  }
+  async function updateInboxMessage(id, patch) {
+    if (auth.role !== 'master') return setStatus('Apenas Mestre pode alterar mensagens.')
+    if (!id) return
+    if (auth.supabaseReady && supabase) {
+      const { error } = await supabase.from('inbox_messages').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
+      setStatus(error ? error.message : 'Mensagem atualizada.')
+    } else {
+      const d = ensureLocal()
+      Object.keys(d.inbox || {}).forEach(uid => { d.inbox[uid] = (d.inbox[uid] || []).map(m => m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m) })
+      writeLocal(d); setStatus('Mensagem local atualizada.')
+    }
+    refresh(false)
+  }
+  async function deleteInboxMessage(id) {
+    if (auth.role !== 'master') return setStatus('Apenas Mestre pode excluir mensagens.')
+    if (!id) return
+    if (auth.supabaseReady && supabase) {
+      const { error } = await supabase.from('inbox_messages').delete().eq('id', id)
+      setStatus(error ? error.message : 'Mensagem excluída.')
+    } else {
+      const d = ensureLocal()
+      Object.keys(d.inbox || {}).forEach(uid => { d.inbox[uid] = (d.inbox[uid] || []).filter(m => m.id !== id) })
+      writeLocal(d); setStatus('Mensagem local excluída.')
+    }
+    refresh(false)
   }
 
-  return { profiles, inbox, notes, contacts, messages, status, loading, lastSync, refresh, updateMyProfile, markRead, saveNote, deleteNote, addContactByEmail, sendMessage, sendInbox }
+  return { profiles, inbox, notes, contacts, messages, status, loading, lastSync, refresh, updateMyProfile, markRead, saveNote, deleteNote, addContactByEmail, sendMessage, sendInbox, sendInboxToAll, updateInboxMessage, deleteInboxMessage }
 }
 
 function PlayerPhonePage({ auth }) {
   const hub = usePlayerHub(auth)
-  const [tab, setTab] = useState('inbox')
+  const [tab, setTab] = useState(() => localStorage.getItem('cain-phone-open-tab') || 'inbox')
+  useEffect(() => { const requested = localStorage.getItem('cain-phone-open-tab'); if (requested) { setTab(requested); localStorage.removeItem('cain-phone-open-tab') } }, [])
   const me = hub.profiles.find(p => p.id === (auth.user?.id || auth.user?.email)) || { display_name: auth.user?.name, email: auth.user?.email, role: auth.role }
   const tabs = ['inbox', 'notes', 'friends', 'chat', 'profile', ...(auth.role === 'master' ? ['master'] : [])]
   const labels = { inbox: 'Caixa', notes: 'Notas', friends: 'Amigos', chat: 'Chat', profile: 'Perfil', master: 'Mestre' }
@@ -756,16 +916,61 @@ function ProfileEditPanel({ me, save }) {
   return <div className="grid two compact-grid"><Card title="Identidade"><label>Nome de exorcista<input value={draft.character_name || ''} onChange={e => setDraft({ ...draft, character_name: e.target.value })} /></label><label>Nome de perfil<input value={draft.display_name || ''} onChange={e => setDraft({ ...draft, display_name: e.target.value })} /></label><label>Organização<input value={draft.organization_title || ''} onChange={e => setDraft({ ...draft, organization_title: e.target.value })} /></label><label>Avatar por URL<input value={draft.avatar_url || ''} onChange={e => setDraft({ ...draft, avatar_url: e.target.value })} /></label><button className="primary" onClick={() => save({ display_name: draft.display_name, character_name: draft.character_name, organization_title: draft.organization_title, avatar_url: draft.avatar_url })}>Salvar perfil</button></Card><Card title="Como isso aparece"><div className="public-actor">{draft.avatar_url ? <img src={draft.avatar_url} alt="avatar" /> : <div className="public-placeholder">▽</div>}<h4>{draft.character_name || draft.display_name || 'Exorcista'}</h4><p className="eyebrow">{draft.organization_title || 'CAIN'}</p><p>{me.email}</p><span className="pill">{me.role}</span></div></Card></div>
 }
 function MasterMailboxPanel({ hub }) {
+  const [tab, setTab] = useState('orders')
+  const tabs = { orders: 'Ordens / Missões', individual: 'Mensagem individual', monitor: 'Monitor de chats' }
+  return <div className="master-phone-panel">
+    <div className="phone-tabs inner-tabs">{Object.entries(tabs).map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
+    {tab === 'orders' && <MissionOrdersPanel hub={hub} />}
+    {tab === 'individual' && <IndividualMailPanel hub={hub} />}
+    {tab === 'monitor' && <ChatMonitorPanel hub={hub} />}
+  </div>
+}
+function IndividualMailPanel({ hub }) {
   const players = hub.profiles.filter(p => p.role === 'player')
   const [playerId, setPlayerId] = useState('')
   const [subject, setSubject] = useState('DOCREF // BRIEFING PESSOAL')
   const [body, setBody] = useState('')
   useEffect(() => { if (!playerId && players[0]) setPlayerId(players[0].id) }, [players.length])
-  return <div className="grid two compact-grid"><Card title="Enviar mensagem individual"><label>Destinatário<select value={playerId} onChange={e => setPlayerId(e.target.value)}>{players.map(p => <option value={p.id} key={p.id}>{p.character_name || p.display_name || p.email} — {p.email}</option>)}</select></label><label>Assunto<input value={subject} onChange={e => setSubject(e.target.value)} /></label><label>Mensagem<textarea className="big-text" value={body} onChange={e => setBody(e.target.value)} placeholder="Mensagem secreta/pessoal para este player." /></label><button className="primary" onClick={() => { hub.sendInbox(playerId, subject, body); setBody('') }}>Enviar para caixa de entrada</button></Card><Card title="Monitor de chats"><div className="log-list">{hub.messages.slice(-40).reverse().map(m => { const sender = hub.profiles.find(p => p.id === m.sender_id); const receiver = hub.profiles.find(p => p.id === m.receiver_id); return <div className="log" key={m.id}><small>{new Date(m.created_at).toLocaleString()}</small><p><strong>{sender?.display_name || m.sender_id}</strong> → <strong>{receiver?.display_name || m.receiver_id}</strong>: {m.body}</p></div> })}</div></Card></div>
+  return <div className="grid two compact-grid"><Card title="Enviar mensagem individual"><label>Destinatário<select value={playerId} onChange={e => setPlayerId(e.target.value)}>{players.map(p => <option value={p.id} key={p.id}>{p.character_name || p.display_name || p.email} — {p.email}</option>)}</select></label><label>Assunto<input value={subject} onChange={e => setSubject(e.target.value)} /></label><label>Mensagem<textarea className="big-text" value={body} onChange={e => setBody(e.target.value)} placeholder="Mensagem secreta/pessoal para este player." /></label><button className="primary" onClick={() => { hub.sendInbox(playerId, subject, body); setBody('') }}>Enviar para caixa de entrada</button></Card><Card title="Players cadastrados"><div className="log-list">{players.map(p => <div className="friend-card" key={p.id}><strong>{p.character_name || p.display_name || p.email}</strong><small>{p.email}</small></div>)}</div></Card></div>
+}
+function MissionOrdersPanel({ hub }) {
+  const players = hub.profiles.filter(p => p.role === 'player')
+  const [subject, setSubject] = useState('ORDEM DE SERVIÇO // NOVA DIRETRIZ')
+  const [body, setBody] = useState('')
+  const [selectedId, setSelectedId] = useState('')
+  const visibleMessages = (hub.inbox || []).filter(m => !OLD_SYSTEM_MAIL_SUBJECTS.includes(m.subject)).sort((a,b)=>String(b.created_at || '').localeCompare(String(a.created_at || '')))
+  const selected = visibleMessages.find(m => m.id === selectedId) || visibleMessages[0]
+  const [editSubject, setEditSubject] = useState('')
+  const [editBody, setEditBody] = useState('')
+  useEffect(() => { if (selected) { setSelectedId(selected.id); setEditSubject(selected.subject || ''); setEditBody(selected.body || '') } }, [selected?.id])
+  const recipientName = id => {
+    const p = players.find(x => x.id === id) || hub.profiles.find(x => x.id === id)
+    return p?.character_name || p?.display_name || p?.email || id
+  }
+  return <div className="grid two compact-grid">
+    <Card title="Emitir Ordem de Serviço / Missão">
+      <p className="muted">Envia a mesma ordem para a caixa de entrada de todos os players cadastrados. Eles recebem um aviso na tela para abrir o Celular CAIN.</p>
+      <label>Título da ordem<input value={subject} onChange={e => setSubject(e.target.value)} /></label>
+      <label>Texto da ordem<textarea className="big-text" value={body} onChange={e => setBody(e.target.value)} placeholder="Escreva a ordem, ponto de encontro, diretrizes e restrições liberadas aos agentes." /></label>
+      <div className="sheet-actions"><button className="primary" onClick={() => { hub.sendInboxToAll(subject, body); setBody('') }}>Enviar para todos os players</button><span className="pill">{players.length} destinatário(s)</span></div>
+    </Card>
+    <Card title="Mensagens emitidas">
+      <div className="phone-grid compact-phone-grid">
+        <div className="message-list order-list">{visibleMessages.length ? visibleMessages.map(m => <button key={m.id} className={selected?.id === m.id ? 'active' : ''} onClick={() => setSelectedId(m.id)}><strong>{m.subject}</strong><span>Para: {recipientName(m.user_id)}</span><small>{m.created_at ? new Date(m.created_at).toLocaleString() : 'sem data'}</small></button>) : <p className="muted">Nenhuma mensagem emitida ainda.</p>}</div>
+        <div className="message-view order-edit">{selected ? <><p className="eyebrow">Editar / excluir</p><label>Assunto<input value={editSubject} onChange={e => setEditSubject(e.target.value)} /></label><label>Mensagem<textarea className="big-text" value={editBody} onChange={e => setEditBody(e.target.value)} /></label><div className="sheet-actions"><button className="primary" onClick={() => hub.updateInboxMessage(selected.id, { subject: editSubject, body: editBody })}>Salvar alteração</button><button className="danger" onClick={() => { if (confirm('Excluir esta mensagem da caixa do destinatário?')) hub.deleteInboxMessage(selected.id) }}>Excluir mensagem</button></div></> : <p className="muted">Selecione uma mensagem.</p>}</div>
+      </div>
+    </Card>
+  </div>
+}
+function ChatMonitorPanel({ hub }) {
+  return <Card title="Monitor de chats"><div className="log-list">{hub.messages.slice(-60).reverse().map(m => { const sender = hub.profiles.find(p => p.id === m.sender_id); const receiver = hub.profiles.find(p => p.id === m.receiver_id); return <div className="log" key={m.id}><small>{new Date(m.created_at).toLocaleString()}</small><p><strong>{sender?.display_name || m.sender_id}</strong> → <strong>{receiver?.display_name || m.receiver_id}</strong>: {m.body}</p></div> })}</div></Card>
 }
 
+
 function Home({ setActive, auth }) {
+  const agentName = auth.user?.name || auth.user?.email?.split('@')[0] || 'agente'
   return <section className="stack gap-xl">
+    {auth.role !== 'guest' && <div className="welcome-banner"><div><p className="eyebrow">Canal seguro estabelecido</p><h2>Bem-vindo, {agentName}.</h2><p>CAIN reconhece sua presença na célula. Mantenha discrição, registre inconsistências e não confie em sinais não verificados. A missão começa quando a ordem chegar ao seu dispositivo.</p></div><button className="primary" onClick={() => openPhoneTab(setActive, 'inbox')}>Abrir caixa de entrada</button></div>}
     <div className="hero-panel">
       <div><p className="eyebrow">Resumo jogável + ferramentas</p><h2>Caçadas, trauma, pressão e execução — tudo pronto para mesa.</h2><p>Esta versão atualizada inclui regras essenciais, criação, agendas, blasfêmias, kit, armas, marcas, caçada, Admin, Pecados, oponentes, rolador, talismãs e ficha digital salva no navegador.</p><div className="hero-actions"><button className="primary" onClick={() => setActive('sheet')}>Criar/abrir ficha</button><button className="ghost" onClick={() => setActive('tools')}>Ferramentas de mesa</button></div></div>
       <DiceRoller compact />

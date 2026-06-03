@@ -1,25 +1,25 @@
-# CAIN RPG — Portal da Célula
+# CAIN // Célula GYU
 
-Site de apoio para jogadores da mesa de CAIN.
+Site de apoio para a one-shot: regras de consulta, ficha digital, caçada ao vivo e Celular CAIN.
 
-## Para jogadores
-
-Acesse com sua conta de exorcista quando o Mestre liberar. Como Guest, você pode consultar as regras abertas. Como Player, você acessa ficha, Celular CAIN, caixa de entrada, anotações e a caçada ao vivo.
-
-## Para rodar localmente
+## Rodar localmente
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Para publicar
+## Publicar atualização
 
-Projeto Vite/React. Na Vercel, use:
+```bash
+npm run build
+git add -A
+git commit -m "Atualiza perfil e ordens de missão"
+git push
+```
 
-- Build command: `npm run build`
-- Output directory: `dist`
+A Vercel atualiza automaticamente após o push.
 
-## Observações
+## Observação do Mestre
 
-A aba de Caçada possui uma missão base de one-shot. O Mestre pode alterar nomes, NPCs, briefing, imagens e registros. Campos de texto salvam ao sair do campo, para evitar perda de letras durante a digitação.
+As ordens de missão aparecem na caixa de entrada dos agentes. Se o botão de excluir mensagem não funcionar por permissão do Supabase, rode o arquivo `SUPABASE_MIGRATION_V20_DELETE_MESSAGES.sql` no SQL Editor.
